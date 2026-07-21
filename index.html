@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>後楽園ホール 座席ビューア</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>後楽園ホール 座席ビューア</h1>
+      <form id="seat-form" class="seat-form">
+        <input
+          id="seat-input"
+          type="text"
+          autocomplete="off"
+          placeholder="座席番号（例: AS-3-12 / 2階南 4列 8番）"
+          aria-label="座席番号"
+        />
+        <button type="submit">この席から見る</button>
+      </form>
+    </header>
+
+    <main class="app-main">
+      <section id="map-panel" class="panel">
+        <div id="seatmap" class="seatmap-host"></div>
+        <div class="panel-controls">
+          <button type="button" data-action="zoom-in" aria-label="拡大">＋</button>
+          <button type="button" data-action="zoom-out" aria-label="縮小">－</button>
+          <button type="button" data-action="reset-map">全体表示</button>
+        </div>
+        <p class="hint">座席をクリック、またはドラッグで移動・ホイールで拡大縮小</p>
+      </section>
+
+      <section id="viewer-panel" class="panel is-hidden">
+        <div id="viewer" class="viewer-host"></div>
+        <div class="panel-controls">
+          <button type="button" data-action="back">座席表に戻る</button>
+          <button type="button" data-action="recenter">視線をリングに戻す</button>
+        </div>
+        <p class="hint"><span id="seat-label"></span> ／ ドラッグで見回す・ホイールでズーム</p>
+      </section>
+    </main>
+
+    <p id="status" class="status" role="status"></p>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
