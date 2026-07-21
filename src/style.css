@@ -7,6 +7,7 @@
   --accent: #ffb020;
   --stand: #4d7ce8;
   --ringside: #e0705a;
+  --balcony: #58b39a;
   color-scheme: dark;
 }
 
@@ -152,6 +153,40 @@ button:hover {
 
 .seat--flat {
   fill: var(--ringside);
+}
+
+/* 座席表の凡例。色は .seat のクラスと合わせる。 */
+.legend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+
+.legend-item--stand::before {
+  background: var(--stand);
+}
+
+.legend-item--flat::before {
+  background: var(--ringside);
+}
+
+.legend-item--balcony::before {
+  background: var(--balcony);
+}
+
+/* 2階のバルコニー席。1階のスタンドと重ならない色にしておく。 */
+.seat--balcony {
+  fill: var(--balcony);
 }
 
 .seat:hover {

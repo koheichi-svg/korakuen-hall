@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { RING } from './hall';
+import { BALCONY, RING } from './hall';
 import { BLOCKS, SEAT_ROWS, SEATS, getSeat, parseSeatId, rowsOfBlock } from './seats';
 
 const block = (code: string) => BLOCKS.find((b) => b.code === code)!;
@@ -8,7 +8,8 @@ const block = (code: string) => BLOCKS.find((b) => b.code === code)!;
 describe('座席データ', () => {
   it('公式座席表と同じ席数・列構成', () => {
     // 座席表PDFから起こした数。抽出やブロック分けが壊れたら気付けるようにしておく。
-    expect(SEATS.length).toBe(1571);
+    // バルコニー席はPDFに載っていない手書きデータなので、この数には含めない。
+    expect(SEATS.filter((seat) => seat.block.kind !== 'balcony').length).toBe(1571);
     expect(rowsOfBlock(block('S')).map((r) => r.row).join('')).toBe('ABCDEFGHIJKLMNOPQR');
     expect(rowsOfBlock(block('N')).map((r) => r.row).join('')).toBe('ABCDEFGHIJK');
     expect(rowsOfBlock(block('E')).map((r) => r.row).join('')).toBe('ABCDE');
@@ -18,6 +19,19 @@ describe('座席データ', () => {
     // 南側の通路がある列(I〜L)は席数が少ない。
     expect(rowsOfBlock(block('S')).find((r) => r.row === 'H')!.seats.length).toBe(46);
     expect(rowsOfBlock(block('S')).find((r) => r.row === 'I')!.seats.length).toBe(34);
+  });
+
+  it('バルコニー席は2階の高さにあり、後列が一段上がる', () => {
+    for (const code of ['BE', 'BW']) {
+      const rows = rowsOfBlock(block(code));
+      expect(rows.map((row) => row.row).join('')).toBe('AB');
+      expect(rows[0].y).toBe(BALCONY.floorY);
+      expect(rows[1].y).toBeGreaterThan(rows[0].y);
+      expect(rows.flatMap((row) => row.seats).length).toBe(40);
+    }
+    // 真下にある東側スタンドの最後列より、はっきり上にある。
+    const eastBack = rowsOfBlock(block('E')).at(-1)!;
+    expect(rowsOfBlock(block('BE'))[0].y).toBeGreaterThan(eastBack.y + 2);
   });
 
   it('IDが一意', () => {
@@ -83,6 +97,8 @@ describe('parseSeatId', () => {
     expect(parseSeatId('ステージ席(東) 15番')?.id).toBe('STE-2-15');
     expect(parseSeatId('リングサイド北 い列 3番')?.id).toBe('RN-い-3');
     expect(parseSeatId('南側リングサイド は列 28番')?.id).toBe('RS-は-28');
+    expect(parseSeatId('バルコニー席東 A列 5番')?.id).toBe('BE-A-5');
+    expect(parseSeatId('西バルコニー B20')?.id).toBe('BW-B-20');
   });
 
   it('存在しない座席は undefined', () => {

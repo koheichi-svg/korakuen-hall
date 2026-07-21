@@ -14,7 +14,7 @@
           id="seat-input"
           type="text"
           autocomplete="off"
-          placeholder="座席番号（例: 南側 H列 23番 / N-K-45 / リングサイド北 い列 3番）"
+          placeholder="座席番号（例: 南側 H列 23番 / N-K-45 / バルコニー席東 A列 5番）"
           aria-label="座席番号"
         />
         <button type="submit">この席から見る</button>
@@ -31,6 +31,11 @@
         </div>
         <p class="hint">
           座席をクリック、またはドラッグで移動・ホイールで拡大縮小
+          <span class="legend">
+            <span class="legend-item legend-item--stand">スタンド</span>
+            <span class="legend-item legend-item--flat">リングサイド</span>
+            <span class="legend-item legend-item--balcony">2階バルコニー席（東・西）</span>
+          </span>
           <span class="hint-source">座席配置: 東京ドームシティ公式「後楽園ホールプロレスリング座席表」</span>
         </p>
       </section>

@@ -1,9 +1,15 @@
+import { BALCONY_ROW_LAYOUT } from './balcony-layout';
 import { RAKE } from './hall';
 import { SEAT_ROW_LAYOUT } from './seat-layout.generated';
 
 export type Side = 'N' | 'S' | 'E' | 'W';
-/** flat = 平場のパイプ椅子（リングサイド）、stand = ひな壇・スタンド。 */
-export type BlockKind = 'flat' | 'stand';
+/**
+ * 床の高さの決まり方。
+ * flat = 平場（高さ0、リングサイド）、stand = ひな壇・スタンド、balcony = 2階バルコニー。
+ */
+export type BlockKind = 'flat' | 'stand' | 'balcony';
+/** そのブロックに置いてある椅子。3Dの見た目はこれで決まる。 */
+export type Furniture = 'folding' | 'fixed' | 'bench';
 
 export interface BlockSpec {
   /** 座席IDの接頭辞。 */
@@ -13,6 +19,7 @@ export interface BlockSpec {
   label: string;
   side: Side;
   kind: BlockKind;
+  furniture: Furniture;
   /** 入力欄で受け付ける別名（空白を除いた形で比較する）。 */
   aliases: string[];
   /** 「列」の呼び方。座席の表示や案内に使う。 */
@@ -42,41 +49,80 @@ export interface Seat {
 }
 
 const BLOCK_SPECS: BlockSpec[] = [
-  block('S', 'SOUTH', '南側', 'S', 'stand', ['S', '南', '南側', '南側スタンド', '南スタンド']),
-  block('N', 'NORTH', '北側', 'N', 'stand', ['N', '北', '北側', '北側スタンド', '北スタンド']),
-  block('E', 'EAST', '東側', 'E', 'stand', ['E', '東', '東側', '東側スタンド', '東スタンド']),
-  block('W', 'WEST', '西側', 'W', 'stand', ['W', '西', '西側', '西側スタンド', '西スタンド']),
-  block('STE', 'STAGE_E', 'ステージ席(東)', 'N', 'stand', [
+  block('S', 'SOUTH', '南側', 'S', 'stand', 'fixed', [
+    'S',
+    '南',
+    '南側',
+    '南側スタンド',
+    '南スタンド',
+  ]),
+  block('N', 'NORTH', '北側', 'N', 'stand', 'bench', [
+    'N',
+    '北',
+    '北側',
+    '北側スタンド',
+    '北スタンド',
+  ]),
+  block('E', 'EAST', '東側', 'E', 'stand', 'bench', [
+    'E',
+    '東',
+    '東側',
+    '東側スタンド',
+    '東スタンド',
+  ]),
+  block('W', 'WEST', '西側', 'W', 'stand', 'bench', [
+    'W',
+    '西',
+    '西側',
+    '西側スタンド',
+    '西スタンド',
+  ]),
+  // ステージ席はひな壇の上だが、置いてあるのはリングサイドと同じ折りたたみ椅子。
+  block('STE', 'STAGE_E', 'ステージ席(東)', 'N', 'stand', 'folding', [
     'STE',
     'ステージ東',
     'ステージ席東',
     '東ステージ',
   ]),
-  block('STW', 'STAGE_W', 'ステージ席(西)', 'N', 'stand', [
+  block('STW', 'STAGE_W', 'ステージ席(西)', 'N', 'stand', 'folding', [
     'STW',
     'ステージ西',
     'ステージ席西',
     '西ステージ',
   ]),
-  block('RN', 'RINGSIDE_N', '北側リングサイド', 'N', 'flat', [
+  block('BE', 'BALCONY_E', 'バルコニー席(東)', 'E', 'balcony', 'folding', [
+    'BE',
+    'バルコニー東',
+    'バルコニー席東',
+    '東バルコニー',
+    '2階東',
+  ]),
+  block('BW', 'BALCONY_W', 'バルコニー席(西)', 'W', 'balcony', 'folding', [
+    'BW',
+    'バルコニー西',
+    'バルコニー席西',
+    '西バルコニー',
+    '2階西',
+  ]),
+  block('RN', 'RINGSIDE_N', '北側リングサイド', 'N', 'flat', 'folding', [
     'RN',
     '北リングサイド',
     '北側リングサイド',
     'リングサイド北',
   ]),
-  block('RS', 'RINGSIDE_S', '南側リングサイド', 'S', 'flat', [
+  block('RS', 'RINGSIDE_S', '南側リングサイド', 'S', 'flat', 'folding', [
     'RS',
     '南リングサイド',
     '南側リングサイド',
     'リングサイド南',
   ]),
-  block('RE', 'RINGSIDE_E', '東側リングサイド', 'E', 'flat', [
+  block('RE', 'RINGSIDE_E', '東側リングサイド', 'E', 'flat', 'folding', [
     'RE',
     '東リングサイド',
     '東側リングサイド',
     'リングサイド東',
   ]),
-  block('RW', 'RINGSIDE_W', '西側リングサイド', 'W', 'flat', [
+  block('RW', 'RINGSIDE_W', '西側リングサイド', 'W', 'flat', 'folding', [
     'RW',
     '西リングサイド',
     '西側リングサイド',
@@ -90,9 +136,10 @@ function block(
   label: string,
   side: Side,
   kind: BlockKind,
+  furniture: Furniture,
   aliases: string[],
 ): BlockSpec {
-  return { code, source, label, side, kind, aliases, rowUnit: '列' };
+  return { code, source, label, side, kind, furniture, aliases, rowUnit: '列' };
 }
 
 /** その席がブロックの奥行き方向にどれだけ離れているか。 */
@@ -114,7 +161,7 @@ const RAKE_BY_SIDE = { N: RAKE.north, S: RAKE.south, E: RAKE.east, W: RAKE.west 
 function buildRows(): SeatRow[] {
   const specsBySource = new Map(BLOCK_SPECS.map((spec) => [spec.source, spec]));
 
-  const rows = SEAT_ROW_LAYOUT.map((layout) => {
+  const rows = [...SEAT_ROW_LAYOUT, ...BALCONY_ROW_LAYOUT].map((layout) => {
     const spec = specsBySource.get(layout.block);
     if (!spec) throw new Error(`未知のブロック: ${layout.block}`);
     const depth =
@@ -124,19 +171,22 @@ function buildRows(): SeatRow[] {
   });
 
   // 斜面の起点は、その側のスタンドの最前列。ステージ席は北側スタンドの斜面に乗る。
-  const frontDepth = new Map<Side, number>();
+  // バルコニーは2階の別の床なので、同じ側でもスタンドとは起点を分ける。
+  const rakeKey = (spec: BlockSpec) => `${spec.kind}:${spec.side}`;
+  const frontDepth = new Map<string, number>();
   for (const row of rows) {
-    if (row.block.kind !== 'stand') continue;
-    const current = frontDepth.get(row.block.side);
-    if (current === undefined || row.depth < current) frontDepth.set(row.block.side, row.depth);
+    if (row.block.kind === 'flat') continue;
+    const key = rakeKey(row.block);
+    const current = frontDepth.get(key);
+    if (current === undefined || row.depth < current) frontDepth.set(key, row.depth);
   }
 
   for (const row of rows) {
     if (row.block.kind === 'flat') {
       row.y = 0;
     } else {
-      const rake = RAKE_BY_SIDE[row.block.side];
-      const front = frontDepth.get(row.block.side) ?? row.depth;
+      const rake = row.block.kind === 'balcony' ? RAKE.balcony : RAKE_BY_SIDE[row.block.side];
+      const front = frontDepth.get(rakeKey(row.block)) ?? row.depth;
       row.y = round(rake.base + Math.max(0, row.depth - front) * rake.slope);
     }
 
