@@ -1,41 +1,42 @@
 import { HALL, RING } from '../data/hall';
-import { BLOCKS, SEATS, getSeat, seatsInRow, type Seat } from '../data/seats';
+import { BLOCKS, SEAT_ROWS, getSeat, rowsOfBlock, seatLabel, type Seat } from '../data/seats';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** 画面いっぱいに引いた状態からの拡大率の範囲。 */
-const MIN_SCALE = 0.6;
-const MAX_SCALE = 12;
+const MIN_SCALE = 0.7;
+const MAX_SCALE = 14;
 
 /** これ以上動かしたらクリックではなくドラッグ扱い。 */
 const DRAG_THRESHOLD_PX = 4;
 
 export interface SeatMap {
-  /** 選択中の座席を塗り分ける。undefined で選択解除。 */
   setSelected(seatId: string | undefined): void;
-  /** 座席がクリックされたときに呼ばれる。 */
   onSelect(handler: (seat: Seat) => void): void;
-  /** 拡大縮小・移動を初期状態に戻す。 */
   resetView(): void;
   zoomBy(factor: number): void;
 }
 
 /**
- * 上から見た座席表。X→右、Z→下（南が下）。
+ * 上から見た座席表。公式の座席表と同じ向き（北が上、南が下）で、
+ * 座席の位置は data/seats.ts の座標をそのまま使う。
  * 拡大縮小・移動は <g> の transform だけで行い、SVGの中身は作り直さない。
  */
 export function createSeatMap(container: HTMLElement): SeatMap {
+  const margin = 1.5;
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('class', 'seatmap');
   svg.setAttribute(
     'viewBox',
-    `${-HALL.halfX} ${-HALL.halfZ} ${HALL.halfX * 2} ${HALL.halfZ * 2}`,
+    `${HALL.minX - margin} ${HALL.minZ - margin} ${HALL.maxX - HALL.minX + margin * 2} ${
+      HALL.maxZ - HALL.minZ + margin * 2
+    }`,
   );
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
 
   const camera = document.createElementNS(SVG_NS, 'g');
   svg.append(camera);
-  camera.append(createRing(), createBlockLabels(), createSeats());
+  camera.append(createRing(), createSeats(), createRowLabels(), createBlockLabels());
   container.append(svg);
 
   const seatNodes = new Map<string, SVGRectElement>();
@@ -94,7 +95,7 @@ export function createSeatMap(container: HTMLElement): SeatMap {
     const local = toLocal(event);
     panX = dragStartPan.x + (local.x - dragOrigin.x);
     panY = dragStartPan.y + (local.y - dragOrigin.y);
-    dragDistance = Math.hypot(event.movementX, event.movementY) + dragDistance;
+    dragDistance += Math.hypot(event.movementX, event.movementY);
     applyTransform();
   });
 
@@ -144,23 +145,88 @@ export function createSeatMap(container: HTMLElement): SeatMap {
 
 function createSeats(): SVGGElement {
   const group = document.createElementNS(SVG_NS, 'g');
-  const size = 0.38;
 
-  for (const seat of SEATS) {
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', String(seat.x - size / 2));
-    rect.setAttribute('y', String(seat.z - size / 2));
-    rect.setAttribute('width', String(size));
-    rect.setAttribute('height', String(size));
-    rect.setAttribute('rx', '0.08');
-    rect.setAttribute('class', `seat seat--${seat.block.level}`);
-    rect.dataset.seatId = seat.id;
+  for (const row of SEAT_ROWS) {
+    const size = row.block.kind === 'flat' ? 0.36 : 0.4;
+    for (const seat of row.seats) {
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', String(seat.x - size / 2));
+      rect.setAttribute('y', String(seat.z - size / 2));
+      rect.setAttribute('width', String(size));
+      rect.setAttribute('height', String(size));
+      rect.setAttribute('rx', '0.07');
+      rect.setAttribute('class', `seat seat--${row.block.kind}`);
+      rect.dataset.seatId = seat.id;
 
-    const title = document.createElementNS(SVG_NS, 'title');
-    title.textContent = seatLabel(seat);
-    rect.append(title);
+      const title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = seatLabel(seat);
+      rect.append(title);
+      group.append(rect);
+    }
+  }
+  return group;
+}
 
-    group.append(rect);
+/** 各列の両端に列名（A〜R / い〜に）を出す。 */
+function createRowLabels(): SVGGElement {
+  const group = document.createElementNS(SVG_NS, 'g');
+
+  for (const row of SEAT_ROWS) {
+    const horizontal = row.block.side === 'N' || row.block.side === 'S';
+    const sorted = row.seats
+      .slice()
+      .sort((a, b) => (horizontal ? a.x - b.x : a.z - b.z));
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const offset = 0.75;
+
+    const ends = horizontal
+      ? [
+          { x: first.x - offset, z: first.z },
+          { x: last.x + offset, z: last.z },
+        ]
+      : [
+          { x: first.x, z: first.z - offset },
+          { x: last.x, z: last.z + offset },
+        ];
+
+    for (const end of ends) {
+      const text = document.createElementNS(SVG_NS, 'text');
+      text.setAttribute('x', String(end.x));
+      text.setAttribute('y', String(end.z + 0.15));
+      text.setAttribute('class', 'row-label');
+      text.textContent = row.row;
+      group.append(text);
+    }
+  }
+  return group;
+}
+
+function createBlockLabels(): SVGGElement {
+  const group = document.createElementNS(SVG_NS, 'g');
+
+  for (const block of BLOCKS) {
+    if (block.kind === 'flat') continue;
+    const rows = rowsOfBlock(block);
+    const back = rows[rows.length - 1];
+    const horizontal = block.side === 'N' || block.side === 'S';
+    const sign = block.side === 'S' || block.side === 'E' ? 1 : -1;
+    const gap = 1.6;
+
+    const center = back.seats.reduce(
+      (acc, seat) => ({ x: acc.x + seat.x / back.seats.length, z: acc.z + seat.z / back.seats.length }),
+      { x: 0, z: 0 },
+    );
+    const x = horizontal ? center.x : center.x + sign * gap;
+    const z = horizontal ? center.z + sign * gap : center.z;
+
+    const text = document.createElementNS(SVG_NS, 'text');
+    text.setAttribute('x', String(x));
+    text.setAttribute('y', String(z));
+    text.setAttribute('class', 'block-label');
+    if (!horizontal) text.setAttribute('transform', `rotate(${sign * 90} ${x} ${z})`);
+    text.textContent = block.label;
+    group.append(text);
   }
   return group;
 }
@@ -186,38 +252,10 @@ function createRing(): SVGGElement {
   label.setAttribute('x', '0');
   label.setAttribute('y', '0.4');
   label.setAttribute('class', 'ring-label');
-  label.textContent = 'RING';
+  label.textContent = 'リング';
 
   group.append(apron, mat, label);
   return group;
-}
-
-function createBlockLabels(): SVGGElement {
-  const group = document.createElementNS(SVG_NS, 'g');
-
-  for (const block of BLOCKS) {
-    // 最後列の中央あたり、客席の少し外側に置く。
-    const lastRow = block.rows;
-    const depth = block.firstRowDepth + (lastRow - 1) * block.rowPitch + 0.85;
-    const offsets = { S: [0, depth], N: [0, -depth], E: [depth, 0], W: [-depth, 0] }[block.side];
-
-    const text = document.createElementNS(SVG_NS, 'text');
-    text.setAttribute('x', String(offsets[0]));
-    text.setAttribute('y', String(offsets[1]));
-    text.setAttribute('class', 'block-label');
-    // 東西のブロックは横に並ぶと文字列同士がぶつかるので縦書き相当に倒す。
-    if (block.side === 'E' || block.side === 'W') {
-      const angle = block.side === 'E' ? 90 : -90;
-      text.setAttribute('transform', `rotate(${angle} ${offsets[0]} ${offsets[1]})`);
-    }
-    text.textContent = `${block.label} (${block.rows}列 / 最大${seatsInRow(block, lastRow)}番)`;
-    group.append(text);
-  }
-  return group;
-}
-
-export function seatLabel(seat: Seat): string {
-  return `${seat.block.label} ${seat.row}列 ${seat.number}番`;
 }
 
 function clamp(value: number, min: number, max: number): number {

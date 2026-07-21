@@ -5,8 +5,8 @@
   --text: #e7ebf3;
   --muted: #97a0b5;
   --accent: #ffb020;
-  --arena: #4d7ce8;
-  --balcony: #3aa88a;
+  --stand: #4d7ce8;
+  --ringside: #e0705a;
   color-scheme: dark;
 }
 
@@ -113,6 +113,13 @@ button:hover {
   font-size: 13px;
 }
 
+.hint-source {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
 .seatmap-host,
 .viewer-host {
   flex: 1;
@@ -139,12 +146,12 @@ button:hover {
 }
 
 .seat {
-  fill: var(--arena);
-  opacity: 0.75;
+  fill: var(--stand);
+  opacity: 0.8;
 }
 
-.seat--balcony {
-  fill: var(--balcony);
+.seat--flat {
+  fill: var(--ringside);
 }
 
 .seat:hover {
@@ -171,11 +178,23 @@ button:hover {
 }
 
 .ring-label,
-.block-label {
+.block-label,
+.row-label {
   fill: var(--muted);
   font-size: calc(0.95px / var(--map-scale, 1));
   text-anchor: middle;
   pointer-events: none;
+}
+
+/* 列名は席が小さく見える引きの状態では邪魔なので、拡大したときだけ出す。 */
+.row-label {
+  font-size: calc(0.62px / var(--map-scale, 1));
+  opacity: clamp(0, calc(var(--map-scale, 1) - 1.6), 1);
+}
+
+.block-label {
+  fill: var(--text);
+  font-weight: 600;
 }
 
 .ring-label {

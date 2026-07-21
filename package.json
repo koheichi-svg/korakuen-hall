@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "build:seats": "node tools/build-seat-layout.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },

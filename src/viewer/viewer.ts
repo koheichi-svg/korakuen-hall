@@ -32,7 +32,7 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 0.85;
   container.append(renderer.domElement);
 
   let yaw = 0;

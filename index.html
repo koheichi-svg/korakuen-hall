@@ -14,7 +14,7 @@
           id="seat-input"
           type="text"
           autocomplete="off"
-          placeholder="座席番号（例: AS-3-12 / 2階南 4列 8番）"
+          placeholder="座席番号（例: 南側 H列 23番 / N-K-45 / リングサイド北 い列 3番）"
           aria-label="座席番号"
         />
         <button type="submit">この席から見る</button>
@@ -29,7 +29,10 @@
           <button type="button" data-action="zoom-out" aria-label="縮小">－</button>
           <button type="button" data-action="reset-map">全体表示</button>
         </div>
-        <p class="hint">座席をクリック、またはドラッグで移動・ホイールで拡大縮小</p>
+        <p class="hint">
+          座席をクリック、またはドラッグで移動・ホイールで拡大縮小
+          <span class="hint-source">座席配置: 東京ドームシティ公式「後楽園ホールプロレスリング座席表」</span>
+        </p>
       </section>
 
       <section id="viewer-panel" class="panel is-hidden">

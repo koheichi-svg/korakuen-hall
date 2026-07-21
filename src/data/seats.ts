@@ -1,150 +1,170 @@
-import { HALL } from './hall';
+import { RAKE } from './hall';
+import { SEAT_ROW_LAYOUT } from './seat-layout.generated';
 
-export type SeatLevel = 'arena' | 'balcony';
-export type SeatSide = 'S' | 'N' | 'E' | 'W';
-
-export interface Seat {
-  /** 例: "AS-3-12" (ブロックコード - 列 - 番) */
-  id: string;
-  block: BlockSpec;
-  /** 1始まり。1がリングに最も近い列。 */
-  row: number;
-  /** 1始まり。リングを向いて左端が1番。 */
-  number: number;
-  /** ワールド座標の着席位置（床面。目線の高さは EYE_HEIGHT を足す）。 */
-  x: number;
-  y: number;
-  z: number;
-}
+export type Side = 'N' | 'S' | 'E' | 'W';
+/** flat = 平場のパイプ椅子（リングサイド）、stand = ひな壇・スタンド。 */
+export type BlockKind = 'flat' | 'stand';
 
 export interface BlockSpec {
   /** 座席IDの接頭辞。 */
   code: string;
-  /** 表示名。 */
+  /** 生成データ側のブロック名。 */
+  source: string;
   label: string;
-  level: SeatLevel;
-  side: SeatSide;
-  rows: number;
-  /** 1列目のリング中心からの距離。 */
-  firstRowDepth: number;
-  rowPitch: number;
-  seatPitch: number;
-  firstRowSeats: number;
-  /** 1列後ろに下がるごとに増える席数。 */
-  seatsGrowth: number;
-  /** 1列目の床の高さ。 */
-  baseY: number;
-  /** ひな壇1段あたりの高さ。アリーナ席は平場なので0。 */
-  riserPitch: number;
+  side: Side;
+  kind: BlockKind;
+  /** 入力欄で受け付ける別名（空白を除いた形で比較する）。 */
+  aliases: string[];
+  /** 「列」の呼び方。座席の表示や案内に使う。 */
+  rowUnit: '列';
 }
 
-/**
- * ブロックの向き。
- * depth = リングから客席へ向かう単位ベクトル、
- * lateral = 座席番号が増える向き（リングを向いて左→右）。
- */
-const AXES: Record<SeatSide, { depth: [number, number]; lateral: [number, number] }> = {
-  // [x, z] の2成分のみ。高さは baseY / riserPitch が受け持つ。
-  S: { depth: [0, 1], lateral: [1, 0] },
-  N: { depth: [0, -1], lateral: [-1, 0] },
-  E: { depth: [1, 0], lateral: [0, -1] },
-  W: { depth: [-1, 0], lateral: [0, 1] },
-};
+export interface SeatRow {
+  block: BlockSpec;
+  row: string;
+  /** リング中央からブロックの奥行き方向に測った距離。 */
+  depth: number;
+  /** その列の床の高さ。 */
+  y: number;
+  seats: Seat[];
+}
+
+export interface Seat {
+  /** 例: "S-A-12", "RN-い-3" */
+  id: string;
+  block: BlockSpec;
+  row: string;
+  number: number;
+  x: number;
+  /** 床の高さ。目線は EYE_HEIGHT を足す。 */
+  y: number;
+  z: number;
+}
 
 const BLOCK_SPECS: BlockSpec[] = [
-  arena('AS', 'アリーナ南', 'S', 9, 22),
-  arena('AN', 'アリーナ北', 'N', 9, 22),
-  arena('AE', 'アリーナ東', 'E', 7, 12),
-  arena('AW', 'アリーナ西', 'W', 7, 12),
-  balcony('BS', '2階南', 'S', 13.2, 34),
-  balcony('BN', '2階北', 'N', 13.2, 34),
-  balcony('BE', '2階東', 'E', 12.0, 24),
-  balcony('BW', '2階西', 'W', 12.0, 24),
+  block('S', 'SOUTH', '南側', 'S', 'stand', ['S', '南', '南側', '南側スタンド', '南スタンド']),
+  block('N', 'NORTH', '北側', 'N', 'stand', ['N', '北', '北側', '北側スタンド', '北スタンド']),
+  block('E', 'EAST', '東側', 'E', 'stand', ['E', '東', '東側', '東側スタンド', '東スタンド']),
+  block('W', 'WEST', '西側', 'W', 'stand', ['W', '西', '西側', '西側スタンド', '西スタンド']),
+  block('STE', 'STAGE_E', 'ステージ席(東)', 'N', 'stand', [
+    'STE',
+    'ステージ東',
+    'ステージ席東',
+    '東ステージ',
+  ]),
+  block('STW', 'STAGE_W', 'ステージ席(西)', 'N', 'stand', [
+    'STW',
+    'ステージ西',
+    'ステージ席西',
+    '西ステージ',
+  ]),
+  block('RN', 'RINGSIDE_N', '北側リングサイド', 'N', 'flat', [
+    'RN',
+    '北リングサイド',
+    '北側リングサイド',
+    'リングサイド北',
+  ]),
+  block('RS', 'RINGSIDE_S', '南側リングサイド', 'S', 'flat', [
+    'RS',
+    '南リングサイド',
+    '南側リングサイド',
+    'リングサイド南',
+  ]),
+  block('RE', 'RINGSIDE_E', '東側リングサイド', 'E', 'flat', [
+    'RE',
+    '東リングサイド',
+    '東側リングサイド',
+    'リングサイド東',
+  ]),
+  block('RW', 'RINGSIDE_W', '西側リングサイド', 'W', 'flat', [
+    'RW',
+    '西リングサイド',
+    '西側リングサイド',
+    'リングサイド西',
+  ]),
 ];
 
-function arena(
+function block(
   code: string,
+  source: string,
   label: string,
-  side: SeatSide,
-  rows: number,
-  firstRowSeats: number,
+  side: Side,
+  kind: BlockKind,
+  aliases: string[],
 ): BlockSpec {
-  return {
-    code,
-    label,
-    level: 'arena',
-    side,
-    rows,
-    firstRowDepth: 4.8,
-    rowPitch: 0.85,
-    seatPitch: 0.52,
-    firstRowSeats,
-    seatsGrowth: 1,
-    baseY: 0,
-    riserPitch: 0,
-  };
+  return { code, source, label, side, kind, aliases, rowUnit: '列' };
 }
 
-function balcony(
-  code: string,
-  label: string,
-  side: SeatSide,
-  firstRowDepth: number,
-  firstRowSeats: number,
-): BlockSpec {
-  return {
-    code,
-    label,
-    level: 'balcony',
-    side,
-    rows: 6,
-    firstRowDepth,
-    rowPitch: 0.95,
-    seatPitch: 0.5,
-    firstRowSeats,
-    seatsGrowth: 2,
-    baseY: HALL.balconyBaseY,
-    riserPitch: 0.45,
-  };
-}
-
-/** その列の席数。後ろの列ほど幅が広がる。 */
-export function seatsInRow(block: BlockSpec, row: number): number {
-  return block.firstRowSeats + (row - 1) * block.seatsGrowth;
-}
-
-function buildSeat(block: BlockSpec, row: number, number: number): Seat {
-  const axes = AXES[block.side];
-  const count = seatsInRow(block, row);
-  const depth = block.firstRowDepth + (row - 1) * block.rowPitch;
-  const lateral = (number - (count + 1) / 2) * block.seatPitch;
-
-  return {
-    id: `${block.code}-${row}-${number}`,
-    block,
-    row,
-    number,
-    x: axes.depth[0] * depth + axes.lateral[0] * lateral,
-    y: block.baseY + (row - 1) * block.riserPitch,
-    z: axes.depth[1] * depth + axes.lateral[1] * lateral,
-  };
-}
-
-function buildAllSeats(): Seat[] {
-  const seats: Seat[] = [];
-  for (const block of BLOCK_SPECS) {
-    for (let row = 1; row <= block.rows; row++) {
-      const count = seatsInRow(block, row);
-      for (let number = 1; number <= count; number++) {
-        seats.push(buildSeat(block, row, number));
-      }
-    }
+/** その席がブロックの奥行き方向にどれだけ離れているか。 */
+function depthOf(side: Side, x: number, z: number): number {
+  switch (side) {
+    case 'N':
+      return -z;
+    case 'S':
+      return z;
+    case 'E':
+      return x;
+    case 'W':
+      return -x;
   }
-  return seats;
 }
+
+const RAKE_BY_SIDE = { N: RAKE.north, S: RAKE.south, E: RAKE.east, W: RAKE.west } as const;
+
+function buildRows(): SeatRow[] {
+  const specsBySource = new Map(BLOCK_SPECS.map((spec) => [spec.source, spec]));
+
+  const rows = SEAT_ROW_LAYOUT.map((layout) => {
+    const spec = specsBySource.get(layout.block);
+    if (!spec) throw new Error(`未知のブロック: ${layout.block}`);
+    const depth =
+      layout.seats.reduce((sum, [, x, z]) => sum + depthOf(spec.side, x, z), 0) /
+      layout.seats.length;
+    return { block: spec, row: layout.row, depth, y: 0, seats: [] as Seat[], layout };
+  });
+
+  // 斜面の起点は、その側のスタンドの最前列。ステージ席は北側スタンドの斜面に乗る。
+  const frontDepth = new Map<Side, number>();
+  for (const row of rows) {
+    if (row.block.kind !== 'stand') continue;
+    const current = frontDepth.get(row.block.side);
+    if (current === undefined || row.depth < current) frontDepth.set(row.block.side, row.depth);
+  }
+
+  for (const row of rows) {
+    if (row.block.kind === 'flat') {
+      row.y = 0;
+    } else {
+      const rake = RAKE_BY_SIDE[row.block.side];
+      const front = frontDepth.get(row.block.side) ?? row.depth;
+      row.y = round(rake.base + Math.max(0, row.depth - front) * rake.slope);
+    }
+
+    row.seats = row.layout.seats.map(([number, x, z]) => ({
+      id: `${row.block.code}-${row.row}-${number}`,
+      block: row.block,
+      row: row.row,
+      number,
+      x,
+      y: row.y,
+      z,
+    }));
+  }
+
+  return rows.map(({ block: spec, row, depth, y, seats }) => ({
+    block: spec,
+    row,
+    depth,
+    y,
+    seats,
+  }));
+}
+
+const round = (value: number) => Math.round(value * 1000) / 1000;
 
 export const BLOCKS: readonly BlockSpec[] = BLOCK_SPECS;
-export const SEATS: readonly Seat[] = buildAllSeats();
+export const SEAT_ROWS: readonly SeatRow[] = buildRows();
+export const SEATS: readonly Seat[] = SEAT_ROWS.flatMap((row) => row.seats);
 
 const SEATS_BY_ID = new Map(SEATS.map((seat) => [seat.id, seat]));
 
@@ -152,55 +172,60 @@ export function getSeat(id: string): Seat | undefined {
   return SEATS_BY_ID.get(id);
 }
 
-/** 入力欄に打ち込まれた文字列 → 座席。表記ゆれを吸収する。 */
-export function parseSeatId(input: string): Seat | undefined {
-  const normalized = normalize(input);
-  if (!normalized) return undefined;
-
-  // 末尾の「列 番」を数字2つとして取り、その手前をすべてブロック名とみなす。
-  // 「2階南」のようにブロック名側にも数字が入るため、後ろから決める。
-  const match = /^(.*?)[\s-]*(\d+)[\s-]+(\d+)$/.exec(normalized);
-  if (!match) return undefined;
-
-  const code = resolveBlockCode(match[1]);
-  if (!code) return undefined;
-
-  return getSeat(`${code}-${Number(match[2])}-${Number(match[3])}`);
+export function seatLabel(seat: Seat): string {
+  return `${seat.block.label} ${seat.row}列 ${seat.number}番`;
 }
 
-/** 全角英数を半角化し、「列」「番」などの飾りを区切りに畳む。 */
+/** ブロックに属する列を、リングに近い順に返す。 */
+export function rowsOfBlock(block: BlockSpec): SeatRow[] {
+  return SEAT_ROWS.filter((row) => row.block === block).sort((a, b) => a.depth - b.depth);
+}
+
+/**
+ * 入力欄の文字列から座席を引く。
+ * 「S-A-12」「南A12」「南側 A列 12番」「リングサイド北 い列 3番」などを受け付ける。
+ */
+export function parseSeatId(input: string): Seat | undefined {
+  const compact = normalize(input).replace(/\s+/g, '');
+  const digits = /(\d+)$/.exec(compact)?.[1];
+  if (!digits) return undefined;
+
+  // ステージ席は列名も数字（「ステージ席東 2列 15番」→ "ステージ東215"）なので、
+  // 末尾の数字のどこまでが座席番号かは決め打ちできない。長い方から順に試して、
+  // 実在する座席になった組み合わせを採用する。
+  for (let take = digits.length; take >= 1; take--) {
+    const number = Number(digits.slice(digits.length - take));
+    const head = compact.slice(0, compact.length - take);
+
+    for (const { spec, alias } of ALIASES) {
+      if (!head.startsWith(alias)) continue;
+      const row = head.slice(alias.length);
+      if (row === '') {
+        // 「ステージ席(東) 15番」のように列を言わない書き方。
+        // ブロック内で番号が一意なときだけ受け付ける。
+        const matches = SEATS.filter((seat) => seat.block === spec && seat.number === number);
+        if (matches.length === 1) return matches[0];
+        continue;
+      }
+      const seat = getSeat(`${spec.code}-${row}-${number}`);
+      if (seat) return seat;
+    }
+  }
+  return undefined;
+}
+
+/** ブロック名の別名。長いものから当てる（"南"は"南側リングサイド"の接頭辞でもあるため）。 */
+const ALIASES = BLOCK_SPECS.flatMap((spec) =>
+  spec.aliases.map((alias) => ({ spec, alias: normalize(alias).replace(/\s+/g, '') })),
+).sort((a, b) => b.alias.length - a.alias.length);
+
+/** 全角英数を半角に、飾り文字を空白に畳む。カタカナの長音符(ー)は残す。 */
 function normalize(input: string): string {
   return input
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-    .replace(/[ａ-ｚa-z]/g, (c) => c.toUpperCase())
-    // 全角ハイフン類だけを半角化する。カタカナの長音符(ー U+30FC)は「アリーナ」で使うので触らない。
-    .replace(/[－−‐-―]/g, '-')
+    .replace(/[a-z]/g, (c) => c.toUpperCase())
+    .replace(/[－−‐-―]/g, ' ')
     .replace(/ブロック|列|番|席/g, ' ')
-    .replace(/[\s　_/,.-]+/g, ' ')
+    .replace(/[-()（）\s　_/,.]+/g, ' ')
     .trim();
-}
-
-const BLOCK_ALIASES = new Map<string, string>();
-for (const block of BLOCK_SPECS) {
-  BLOCK_ALIASES.set(block.code, block.code);
-  BLOCK_ALIASES.set(block.label, block.code);
-}
-// 「南」だけならアリーナ、「2階南」「二階南」なら2階。
-for (const [side, code] of [
-  ['南', 'S'],
-  ['北', 'N'],
-  ['東', 'E'],
-  ['西', 'W'],
-] as const) {
-  BLOCK_ALIASES.set(side, `A${code}`);
-  BLOCK_ALIASES.set(`アリーナ${side}`, `A${code}`);
-  BLOCK_ALIASES.set(`1階${side}`, `A${code}`);
-  BLOCK_ALIASES.set(`一階${side}`, `A${code}`);
-  BLOCK_ALIASES.set(`2階${side}`, `B${code}`);
-  BLOCK_ALIASES.set(`二階${side}`, `B${code}`);
-  BLOCK_ALIASES.set(`2F${side}`, `B${code}`);
-}
-
-function resolveBlockCode(raw: string): string | undefined {
-  return BLOCK_ALIASES.get(raw.replace(/\s+/g, ''));
 }

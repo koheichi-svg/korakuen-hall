@@ -1,5 +1,5 @@
-import { parseSeatId, type Seat } from './data/seats';
-import { createSeatMap, seatLabel } from './seatmap/seatmap';
+import { parseSeatId, seatLabel, type Seat } from './data/seats';
+import { createSeatMap } from './seatmap/seatmap';
 import { createSeatViewer } from './viewer/viewer';
 
 const mapPanel = requireElement('map-panel');
@@ -19,7 +19,9 @@ form.addEventListener('submit', (event) => {
   event.preventDefault();
   const seat = parseSeatId(input.value);
   if (!seat) {
-    setStatus(`「${input.value}」に該当する座席が見つかりません。例: AS-3-12 / 2階南 4列 8番`);
+    setStatus(
+      `「${input.value}」に該当する座席が見つかりません。例: 南側 H列 23番 / N-K-45 / リングサイド北 い列 3番`,
+    );
     return;
   }
   showSeat(seat);
