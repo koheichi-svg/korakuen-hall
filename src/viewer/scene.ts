@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import { HALL, RING } from '../data/hall';
-import { BLOCKS, SEATS, rowsOfBlock, type Seat, type SeatRow } from '../data/seats';
+import { BLOCKS, SEATS, rowsOfBlock, type Seat, type SeatRow, type Side } from '../data/seats';
 
 /**
  * 後楽園ホールを手続き的に組み立てたシーン。
@@ -13,16 +13,25 @@ import { BLOCKS, SEATS, rowsOfBlock, type Seat, type SeatRow } from '../data/sea
  */
 
 const COLOR = {
-  floor: 0x9c7846,
-  wood: 0xc49a63,
-  woodEdge: 0x3b332c,
-  wall: 0xc6b99f,
-  wallBand: 0x5a5044,
-  ceiling: 0xcdc1a9,
-  structure: 0x6b5f50,
-  standSeat: 0xc25f26,
-  chairSeat: 0x28305a,
-  chairBack: 0xa32a1f,
+  floor: 0xb07b3f,
+  // ひな壇は白木のベンチ（写真では番号が白くステンシルされている）。
+  wood: 0xd6ad7c,
+  woodEdge: 0x4a3b2c,
+  wall: 0xd6ccb8,
+  wallBand: 0x5a4a3a,
+  ceiling: 0xe2dac9,
+  structure: 0x8a8278,
+  // 南側スタンドの固定席: オレンジのビニール張り、肘掛けと背面シェルは焦げ茶。
+  standSeat: 0xd2541f,
+  standShell: 0x2d2521,
+  armrest: 0x3a2f28,
+  numberPlate: 0xf2efe6,
+  // リングサイドのパイプ椅子: 座面は穴あきの濃いグレー、背もたれは赤い広告カバー。
+  chairSeat: 0x3d3c40,
+  chairBack: 0xc4162a,
+  chrome: 0xb9bec4,
+  grip: 0x1b1b1e,
+  rail: 0xd5d0c2,
   // リングはプロレスリング・ノア仕様。
   mat: 0x15693c,
   noahGreen: 0x149b57,
@@ -49,6 +58,66 @@ export function createHallScene(): THREE.Scene {
 const standard = (color: number, roughness = 0.9) =>
   new THREE.MeshStandardMaterial({ color, roughness });
 
+/** パイプ椅子のフレームや手すりのような金属。 */
+const metal = (color: number, roughness = 0.35) =>
+  new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.7 });
+
+/** 寄木タイル1枚の実寸(m)。4×4ブロック分。 */
+const PARQUET_TILE = 1.24;
+
+/** 体育館の寄木床。ブロックごとに板の向きが90度変わる市松。 */
+function createParquetTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const block = size / 4;
+  const plank = block / 4;
+
+  for (let by = 0; by < 4; by++) {
+    for (let bx = 0; bx < 4; bx++) {
+      const vertical = (bx + by) % 2 === 0;
+      for (let i = 0; i < 4; i++) {
+        // 板ごとに明るさを散らして木目のむらを出す。
+        const lightness = 42 + ((bx * 5 + by * 11 + i * 7) % 6) * 2.4;
+        ctx.fillStyle = `hsl(31, 46%, ${lightness}%)`;
+        const x = bx * block + (vertical ? i * plank : 0);
+        const y = by * block + (vertical ? 0 : i * plank);
+        ctx.fillRect(x, y, vertical ? plank : block, vertical ? block : plank);
+        ctx.strokeStyle = 'rgba(60, 38, 16, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, (vertical ? plank : block) - 1, (vertical ? block : plank) - 1);
+      }
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 8;
+  return texture;
+}
+
+/** 壁の「西 WEST」のような方角看板。 */
+function createSignTexture(kanji: string, roman: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 110;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#f4f1e8';
+  ctx.fillRect(0, 0, 128, 110);
+  ctx.strokeStyle = '#8a8378';
+  ctx.strokeRect(1, 1, 126, 108);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#c0182a';
+  ctx.font = 'bold 62px sans-serif';
+  ctx.fillText(kanji, 64, 68);
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(roman, 64, 96);
+  return new THREE.CanvasTexture(canvas);
+}
+
 /** 床・壁・天井・照明トラス。 */
 function createShell(): THREE.Group {
   const group = new THREE.Group();
@@ -57,7 +126,13 @@ function createShell(): THREE.Group {
   const centerX = (HALL.minX + HALL.maxX) / 2;
   const centerZ = (HALL.minZ + HALL.maxZ) / 2;
 
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), standard(COLOR.floor, 0.85));
+  // 床は体育館の寄木（ブロックごとに板の向きが直交する）。
+  const parquet = createParquetTexture();
+  parquet.repeat.set(width / PARQUET_TILE, depth / PARQUET_TILE);
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, depth),
+    new THREE.MeshStandardMaterial({ map: parquet, roughness: 0.55 }),
+  );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(centerX, 0, centerZ);
   group.add(floor);
@@ -71,29 +146,130 @@ function createShell(): THREE.Group {
   group.add(ceiling);
 
   const wall = standard(COLOR.wall, 1);
-  const walls: [number, number, number, number][] = [
-    // [幅, 中心x, 中心z, y回転]
-    [width, centerX, HALL.minZ, 0],
-    [width, centerX, HALL.maxZ, Math.PI],
-    [depth, HALL.minX, centerZ, Math.PI / 2],
-    [depth, HALL.maxX, centerZ, -Math.PI / 2],
+  const walls: [string, string, number, number, number, number, number][] = [
+    // [漢字, 英字, 壁の幅, 中心x, 中心z, y回転, 看板の高さ]
+    ['北', 'NORTH', width, centerX, HALL.minZ, 0, HALL.galleryY - 0.3],
+    ['南', 'SOUTH', width, centerX, HALL.maxZ, Math.PI, HALL.galleryY - 2.1],
+    ['西', 'WEST', depth, HALL.minX, centerZ, Math.PI / 2, HALL.galleryY - 2.1],
+    ['東', 'EAST', depth, HALL.maxX, centerZ, -Math.PI / 2, HALL.galleryY - 2.1],
   ];
-  for (const [size, x, z, rotation] of walls) {
+  for (const [kanji, roman, size, x, z, rotation, signY] of walls) {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(size, HALL.ceilingY), wall);
     plane.position.set(x, HALL.ceilingY / 2, z);
     plane.rotation.y = rotation;
     group.add(plane);
 
-    // 壁の上の方にある2階ギャラリーの帯。高さの目安になる。
+    // 2階ギャラリー。開口の暗がりと、その手前の銀色の手すり。
     const band = new THREE.Mesh(new THREE.PlaneGeometry(size, 1.5), standard(COLOR.wallBand, 1));
     band.position.set(x, HALL.galleryY, z);
     band.rotation.y = rotation;
     band.translateZ(0.05);
     group.add(band);
+
+    const rail = new THREE.Group();
+    const railTube = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, size, 8),
+      metal(COLOR.rail),
+    );
+    railTube.rotation.z = Math.PI / 2;
+    railTube.position.y = 0.55;
+    rail.add(railTube);
+    for (let offset = -size / 2 + 0.6; offset < size / 2; offset += 2.4) {
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.035, 0.035, 0.6, 6),
+        metal(COLOR.rail),
+      );
+      post.position.set(offset, 0.28, 0);
+      rail.add(post);
+    }
+    rail.position.set(x, HALL.galleryY - 0.75, z);
+    rail.rotation.y = rotation;
+    rail.translateZ(0.25);
+    group.add(rail);
+
+    // 客席の方角を示す白い看板（漢字が赤、下に英字）。四方の壁すべてに向かい合わせで付く。
+    // 北側だけはひな壇が高く上がってくるので、看板も高い位置に逃がす。
+    const material = new THREE.MeshBasicMaterial({
+      map: createSignTexture(kanji, roman),
+      transparent: true,
+    });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.4), material);
+    sign.position.set(x, signY, z);
+    sign.rotation.y = rotation;
+    sign.translateZ(0.06);
+    group.add(sign);
   }
 
+  group.add(createScreen());
   group.add(createCeilingRig());
   return group;
+}
+
+/**
+ * 北側スタンドの上に吊られた大型スクリーン。
+ * 北側の客席は最後列で床が3.9mまで上がるので、その頭上を越える高さに掛かっている。
+ * 画面は南（客席側）を向くので、北側スタンドからは裏の黒い箱しか見えない。
+ */
+function createScreen(): THREE.Group {
+  const group = new THREE.Group();
+  const width = 6.0;
+  const height = 3.4;
+  const z = -15.0;
+  const y = 7.2;
+  const bezel = standard(0x141416, 0.7);
+
+  const box = new THREE.Mesh(new THREE.BoxGeometry(width + 0.34, height + 0.34, 0.4), bezel);
+  box.position.set(0, y, z);
+  group.add(box);
+
+  // 発光面。周りの照明に影響されないよう Basic で描く。
+  const face = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: createScreenTexture() }),
+  );
+  face.position.set(0, y, z + 0.21);
+  group.add(face);
+
+  // 天井から吊るワイヤーと、下向きの補強。
+  for (const x of [-width / 2 + 0.4, width / 2 - 0.4]) {
+    const top = y + height / 2 + 0.17;
+    const wire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.035, 0.035, HALL.ceilingY - top, 6),
+      standard(0x17171a, 0.6),
+    );
+    wire.position.set(x, (HALL.ceilingY + top) / 2, z);
+    group.add(wire);
+  }
+
+  return group;
+}
+
+/** スクリーンの表示面。中央が明るく落ちていく、試合前のスタンバイ画面のような絵。 */
+function createScreenTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 290;
+  const ctx = canvas.getContext('2d')!;
+
+  const glow = ctx.createRadialGradient(256, 130, 20, 256, 145, 300);
+  glow.addColorStop(0, '#2f3f5c');
+  glow.addColorStop(1, '#080a10');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, 512, 290);
+
+  ctx.fillStyle = '#f0f2f6';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 54px sans-serif';
+  ctx.fillText('後楽園ホール', 256, 150);
+  ctx.fillStyle = '#8fa6c8';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillText('KORAKUEN HALL', 256, 190);
+
+  // 走査線。ドット感が出て「映っている」ように見える。
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+  for (let y = 0; y < 290; y += 3) ctx.fillRect(0, y, 512, 1);
+
+  return new THREE.CanvasTexture(canvas);
 }
 
 /** リングの真上に吊られた照明トラスと、客席側の天井照明。 */
@@ -102,7 +278,17 @@ function createCeilingRig(): THREE.Group {
   const trussY = HALL.ceilingY - 2.0;
   const truss = standard(COLOR.truss, 0.7);
   const lamp = new THREE.MeshBasicMaterial({ color: COLOR.lamp });
-  const lampGeometry = new THREE.SphereGeometry(0.14, 10, 8);
+
+  // バトンに吊られた黒いパーライト。数が多いので位置だけ溜めて最後にまとめて描く。
+  const ringTarget = new THREE.Vector3(0, RING.matY, 0);
+  const cans: THREE.Matrix4[] = [];
+  const dummy = new THREE.Object3D();
+  const parCan = (x: number, y: number, z: number) => {
+    dummy.position.set(x, y, z);
+    dummy.lookAt(ringTarget); // ローカル +Z が照射方向
+    dummy.updateMatrix();
+    cans.push(dummy.matrix.clone());
+  };
 
   // リング上に組まれた四角い枠と、その内側の桟。
   for (const x of [-5.6, -1.9, 1.9, 5.6]) {
@@ -115,24 +301,65 @@ function createCeilingRig(): THREE.Group {
     beam.position.set(0, trussY, z);
     group.add(beam);
   }
-  // トラスにずらりと並ぶスポット。まぶしさがリング上の明暗を作る。
+  // トラスにずらりと並ぶ黒いパーライト。まぶしさがリング上の明暗を作る。
   for (let i = -6; i <= 6; i++) {
     for (const z of [-6.4, -3, 3, 6.4]) {
-      const bulb = new THREE.Mesh(lampGeometry, lamp);
-      bulb.position.set(i * 0.9, trussY - 0.32, z);
-      group.add(bulb);
+      parCan(i * 0.9, trussY - 0.42, z);
     }
   }
-  // 客席側に向けた吊り照明の列（写真で客席の上に見える横一列のライト）。
-  for (const z of [-8.5, 9.5]) {
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(15, 0.3, 0.3), truss);
-    bar.position.set(0, trussY + 0.6, z);
+  // 客席の上に渡したバトンにも、リングを狙った灯体がびっしり並ぶ。
+  for (const z of [-9.5, -12.5, 10.5, 14]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(20, 0.22, 0.22), truss);
+    bar.position.set(0, trussY + 0.9, z);
     group.add(bar);
     for (let i = -8; i <= 8; i++) {
-      const bulb = new THREE.Mesh(lampGeometry, lamp);
-      bulb.position.set(i * 0.9, trussY + 0.4, z);
-      group.add(bulb);
+      parCan(i * 1.2, trussY + 0.62, z);
     }
+  }
+  for (const x of [-11, 11]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 26), truss);
+    bar.position.set(x, trussY + 0.9, 2);
+    group.add(bar);
+    for (let i = -5; i <= 5; i++) {
+      parCan(x, trussY + 0.62, 2 + i * 2.2);
+    }
+  }
+
+  // 溜めた灯体を部品ごとに InstancedMesh でまとめて出す。
+  // 灯体のローカル: +Z が照射方向、+Y が吊り元。
+  const canBody = standard(COLOR.truss, 0.6);
+  const canHardware = standard(0x17171a, 0.6);
+  const canParts: { geometry: THREE.BufferGeometry; material: THREE.Material; local: THREE.Matrix4 }[] =
+    [
+      {
+        geometry: new THREE.CylinderGeometry(0.115, 0.13, 0.3, 12),
+        material: canBody,
+        local: new THREE.Matrix4().makeRotationX(Math.PI / 2),
+      },
+      {
+        geometry: new THREE.CircleGeometry(0.115, 12),
+        material: lamp,
+        local: new THREE.Matrix4().makeTranslation(0, 0, 0.151),
+      },
+      {
+        geometry: new THREE.BoxGeometry(0.32, 0.03, 0.03),
+        material: canHardware,
+        local: new THREE.Matrix4().makeTranslation(0, 0.14, 0),
+      },
+      {
+        geometry: new THREE.CylinderGeometry(0.022, 0.022, 0.24, 6),
+        material: canHardware,
+        local: new THREE.Matrix4().makeTranslation(0, 0.26, 0),
+      },
+    ];
+  const world = new THREE.Matrix4();
+  for (const part of canParts) {
+    const mesh = new THREE.InstancedMesh(part.geometry, part.material, cans.length);
+    cans.forEach((matrix, index) =>
+      mesh.setMatrixAt(index, world.multiplyMatrices(matrix, part.local)),
+    );
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
   }
 
   // 客席の上のダウンライト。
@@ -505,9 +732,42 @@ function createStands(): THREE.Group {
         group.add(bench);
       }
     }
+
+    group.add(createFrontRail(block.side, rows[0], pitch));
   }
 
   return group;
+}
+
+/**
+ * スタンド最前列の手前に立つ手すり。
+ * 写真だと南側スタンドの前は銀色のパイプ、木のひな壇はクリーム色の塗装パイプ。
+ */
+function createFrontRail(side: Side, front: SeatRow, pitch: number): THREE.Group {
+  const rail = new THREE.Group();
+  const horizontal = side === 'N' || side === 'S';
+  const outward = side === 'S' || side === 'E' ? 1 : -1;
+  const extent = lateralExtent(front);
+  const width = extent.max - extent.min + 0.5;
+  const material = metal(COLOR.rail);
+  const edge = front.depth * outward - (outward * pitch) / 2 - 0.2;
+
+  const place = (mesh: THREE.Mesh, along: number, y: number) => {
+    mesh.position.set(horizontal ? along : edge, front.y + y, horizontal ? edge : along);
+    rail.add(mesh);
+  };
+
+  for (const y of [0.5, 0.98]) {
+    const tubeMesh = new THREE.Mesh(tube(0.04, width), material);
+    tubeMesh.rotation.z = Math.PI / 2;
+    if (!horizontal) tubeMesh.rotation.y = Math.PI / 2;
+    place(tubeMesh, (extent.min + extent.max) / 2, y);
+  }
+  for (let along = extent.min; along <= extent.max; along += 2.6) {
+    place(new THREE.Mesh(tube(0.03, 1.0), material), along, 0.5);
+  }
+
+  return rail;
 }
 
 /** BoxGeometry の面の並び [+x, -x, +y, -y, +z, -z] のうち、リング側を向く面。 */
@@ -531,6 +791,18 @@ function rowPitch(rows: SeatRow[]): number {
 }
 
 /**
+ * 椅子の向き。実際の後楽園ホールは、どのブロックも椅子が列に沿ってまっすぐ並んでいて、
+ * 一脚ずつリング中心を向いたりはしない。ブロックの外側（＝背もたれ側）が
+ * 椅子のローカル +Z になるように、側ごとの yaw を固定で与える。
+ */
+const OUTWARD_YAW: Record<Side, number> = {
+  S: 0,
+  N: Math.PI,
+  E: Math.PI / 2,
+  W: -Math.PI / 2,
+};
+
+/**
  * 座席そのもの。リングサイドのパイプ椅子と南側スタンドの固定席を
  * それぞれ InstancedMesh で描く（木のひな壇はベンチなので座席の形はない）。
  */
@@ -539,76 +811,161 @@ function createSeatFurniture(): THREE.Group {
   const folding = SEATS.filter((seat) => seat.block.kind === 'flat');
   const fixed = SEATS.filter((seat) => seat.block.code === 'S');
 
-  group.add(
-    instancedSeats(folding, {
-      seatColor: COLOR.chairSeat,
-      backColor: COLOR.chairBack,
-      seatY: 0.44,
-      backY: 0.68,
-      width: 0.42,
-      backHeight: 0.4,
-    }),
-  );
-  group.add(
-    instancedSeats(fixed, {
-      seatColor: COLOR.standSeat,
-      backColor: COLOR.standSeat,
-      seatY: 0.42,
-      backY: 0.7,
-      width: 0.46,
-      backHeight: 0.46,
-    }),
-  );
+  group.add(instancedParts(folding, foldingChairParts()));
+  group.add(instancedParts(fixed, fixedSeatParts()));
   return group;
 }
 
-interface SeatStyle {
-  seatColor: number;
-  backColor: number;
-  seatY: number;
-  backY: number;
-  width: number;
-  backHeight: number;
+/** 椅子を構成する部品ひとつ。位置・回転は「足元の中心が原点、+Zが背中側」のローカル座標。 */
+interface ChairPart {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material;
+  position: [number, number, number];
+  /** X軸まわりの傾き。正で上端が背中側(+Z)に倒れる。 */
+  tiltX?: number;
 }
 
-function instancedSeats(seats: Seat[], style: SeatStyle): THREE.Group {
+/**
+ * リングサイドの折りたたみパイプ椅子。
+ * 穴あきの濃いグレーの座面、赤い広告カバーの背もたれ、銀のパイプフレーム
+ * （前脚と後脚がX字に交差し、床には前後方向のランナーが付く）。
+ */
+function foldingChairParts(): ChairPart[] {
+  const seat = standard(COLOR.chairSeat, 0.75);
+  const back = standard(COLOR.chairBack, 0.8);
+  const frame = metal(COLOR.chrome);
+  const grip = standard(COLOR.grip, 0.6);
+  const parts: ChairPart[] = [];
+
+  // 背フレームは床の後ろから背もたれの上まで一本で立ち上がる（少し後ろに倒れる）。
+  const uprightTilt = 0.1;
+  // 前脚は床の前から座面の後ろへ、後脚と交差しながら上がる。
+  const legTilt = 0.51;
+
+  for (const side of [-1, 1]) {
+    const x = side * 0.21;
+    parts.push(
+      { geometry: tube(0.018, 0.9), material: frame, position: [x, 0.45, 0.205], tiltX: uprightTilt },
+      { geometry: tube(0.018, 0.52), material: frame, position: [x, 0.23, -0.07], tiltX: legTilt },
+      // 床に接する前後のランナー。
+      {
+        geometry: tube(0.018, 0.46),
+        material: frame,
+        position: [x, 0.018, 0.02],
+        tiltX: Math.PI / 2,
+      },
+      // フレームを握るための黒いグリップ。
+      { geometry: tube(0.03, 0.16), material: grip, position: [x, 0.63, 0.223], tiltX: uprightTilt },
+    );
+  }
+
+  parts.push(
+    // 座面（樹脂）。
+    { geometry: new THREE.BoxGeometry(0.44, 0.045, 0.42), material: seat, position: [0, 0.44, 0.02] },
+    // 背もたれ（赤いカバー）。
+    {
+      geometry: new THREE.BoxGeometry(0.42, 0.26, 0.035),
+      material: back,
+      position: [0, 0.79, 0.222],
+      tiltX: uprightTilt,
+    },
+    // 前脚どうしをつなぐ貫（横向きなので丸パイプではなく角材で代用）。
+    {
+      geometry: new THREE.BoxGeometry(0.42, 0.028, 0.028),
+      material: frame,
+      position: [0, 0.12, -0.14],
+    },
+  );
+
+  return parts;
+}
+
+/**
+ * 南側スタンドの固定席。
+ * オレンジのビニール張りに、焦げ茶の肘掛けと背面シェル、肘掛け先端に白い番号札。
+ */
+function fixedSeatParts(): ChairPart[] {
+  const vinyl = standard(COLOR.standSeat, 0.7);
+  const shell = standard(COLOR.standShell, 0.8);
+  const arm = standard(COLOR.armrest, 0.7);
+  const plate = standard(COLOR.numberPlate, 0.6);
+  const parts: ChairPart[] = [
+    { geometry: new THREE.BoxGeometry(0.42, 0.1, 0.42), material: vinyl, position: [0, 0.42, 0.02] },
+    {
+      geometry: new THREE.BoxGeometry(0.42, 0.46, 0.1),
+      material: vinyl,
+      position: [0, 0.72, 0.19],
+      tiltX: 0.12,
+    },
+    // 背面のシェルと、座面を支える台座。
+    {
+      geometry: new THREE.BoxGeometry(0.46, 0.5, 0.04),
+      material: shell,
+      position: [0, 0.72, 0.25],
+      tiltX: 0.12,
+    },
+    { geometry: new THREE.BoxGeometry(0.14, 0.38, 0.16), material: shell, position: [0, 0.19, 0.06] },
+  ];
+
+  for (const side of [-1, 1]) {
+    parts.push(
+      { geometry: new THREE.BoxGeometry(0.06, 0.05, 0.4), material: arm, position: [side * 0.24, 0.62, 0.0] },
+      {
+        geometry: new THREE.BoxGeometry(0.05, 0.16, 0.05),
+        material: arm,
+        position: [side * 0.24, 0.52, 0.16],
+      },
+      // 肘掛け先端の白い番号札。
+      {
+        geometry: new THREE.BoxGeometry(0.055, 0.07, 0.09),
+        material: plate,
+        position: [side * 0.24, 0.63, -0.17],
+      },
+    );
+  }
+
+  return parts;
+}
+
+/** Y軸に沿った丸パイプ。 */
+const tube = (radius: number, length: number) =>
+  new THREE.CylinderGeometry(radius, radius, length, 8);
+
+/** 部品ごとに InstancedMesh を1つ作り、各座席の位置・向きに配る。 */
+function instancedParts(seats: Seat[], parts: ChairPart[]): THREE.Group {
   const group = new THREE.Group();
   const count = seats.length;
   if (count === 0) return group;
 
-  const pad = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(style.width, 0.06, 0.42),
-    standard(style.seatColor, 0.85),
-    count,
-  );
-  const back = new THREE.InstancedMesh(
-    new THREE.BoxGeometry(style.width, style.backHeight, 0.06),
-    standard(style.backColor, 0.85),
-    count,
-  );
+  const local = new THREE.Matrix4();
+  const chair = new THREE.Matrix4();
+  const world = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const euler = new THREE.Euler();
+  const scale = new THREE.Vector3(1, 1, 1);
 
-  const dummy = new THREE.Object3D();
-  seats.forEach((seat, index) => {
-    // 椅子のローカル +Z がリングの反対（＝背もたれ側）を向くように回す。
-    const yaw = Math.atan2(seat.x, seat.z);
-
-    dummy.rotation.set(0, yaw, 0);
-    dummy.position.set(seat.x, seat.y + style.seatY, seat.z);
-    dummy.updateMatrix();
-    pad.setMatrixAt(index, dummy.matrix);
-
-    dummy.position.set(
-      seat.x + Math.sin(yaw) * 0.2,
-      seat.y + style.backY,
-      seat.z + Math.cos(yaw) * 0.2,
+  for (const part of parts) {
+    const mesh = new THREE.InstancedMesh(part.geometry, part.material, count);
+    local.compose(
+      position.fromArray(part.position),
+      quaternion.setFromEuler(euler.set(part.tiltX ?? 0, 0, 0)),
+      scale,
     );
-    dummy.updateMatrix();
-    back.setMatrixAt(index, dummy.matrix);
-  });
 
-  pad.instanceMatrix.needsUpdate = true;
-  back.instanceMatrix.needsUpdate = true;
-  group.add(pad, back);
+    seats.forEach((seat, index) => {
+      chair.compose(
+        position.set(seat.x, seat.y, seat.z),
+        quaternion.setFromEuler(euler.set(0, OUTWARD_YAW[seat.block.side], 0)),
+        scale,
+      );
+      mesh.setMatrixAt(index, world.multiplyMatrices(chair, local));
+    });
+
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+  }
+
   return group;
 }
 
