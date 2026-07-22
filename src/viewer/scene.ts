@@ -610,23 +610,6 @@ function createRing(): THREE.Group {
     }
   });
 
-  // リング階段（西南と東北の角）。
-  for (const [x, z] of [
-    [-apronHalf - 0.5, apronHalf - 1.2],
-    [apronHalf + 0.5, -apronHalf + 1.2],
-  ]) {
-    const steps = new THREE.Group();
-    for (let i = 0; i < 3; i++) {
-      const step = new THREE.Mesh(
-        new THREE.BoxGeometry(1.1, 0.12, 0.35),
-        standard(COLOR.structure, 0.8),
-      );
-      step.position.set(x, 0.35 + i * 0.3, z + (x > 0 ? -1 : 1) * i * 0.35);
-      steps.add(step);
-    }
-    group.add(steps);
-  }
-
   return group;
 }
 
@@ -667,22 +650,30 @@ function createSkirtTexture(): THREE.CanvasTexture {
  */
 function createRingsideFloor(): THREE.Group {
   const group = new THREE.Group();
-  const { matHalf, barrier, barrierHeight } = RINGSIDE;
+  const { mat: matEdge, barrier, barrierHeight } = RINGSIDE;
 
+  // マットも柵も、リングが北寄りなぶん北側だけ狭い長方形になる。
   const mat = new THREE.Mesh(
-    new THREE.BoxGeometry(matHalf * 2, 0.03, matHalf * 2),
+    new THREE.BoxGeometry(matEdge.W + matEdge.E, 0.03, matEdge.N + matEdge.S),
     standard(COLOR.ringsideMat, 0.95),
   );
-  mat.position.y = 0.015;
+  mat.position.set((matEdge.E - matEdge.W) / 2, 0.015, (matEdge.S - matEdge.N) / 2);
   group.add(mat);
 
   // 柵は四辺ごとに1本ずつ。角は出入りのために空けてある。
   const material = metal(COLOR.chrome, 0.3);
-  const length = barrier * 2 - 1.6;
   const bars: THREE.Matrix4[] = [];
   const dummy = new THREE.Object3D();
 
-  for (const side of [0, 1, 2, 3]) {
+  // [中心x, 中心z, 長さ, y回転]
+  const runs: [number, number, number, number][] = [
+    [0, -barrier.N, barrier.W + barrier.E - 1.6, 0],
+    [0, barrier.S, barrier.W + barrier.E - 1.6, 0],
+    [barrier.E, (barrier.S - barrier.N) / 2, barrier.N + barrier.S - 1.6, Math.PI / 2],
+    [-barrier.W, (barrier.S - barrier.N) / 2, barrier.N + barrier.S - 1.6, Math.PI / 2],
+  ];
+
+  for (const [x, z, length, rotation] of runs) {
     const run = new THREE.Group();
     // 上下の横パイプ。
     for (const y of [barrierHeight, barrierHeight * 0.45]) {
@@ -697,12 +688,8 @@ function createRingsideFloor(): THREE.Group {
       post.position.set(t, barrierHeight / 2, 0);
       run.add(post);
     }
-    run.rotation.y = (side * Math.PI) / 2;
-    run.position.set(
-      side === 0 ? 0 : side === 1 ? -barrier : side === 2 ? 0 : barrier,
-      0,
-      side === 0 ? -barrier : side === 1 ? 0 : side === 2 ? barrier : 0,
-    );
+    run.rotation.y = rotation;
+    run.position.set(x, 0, z);
     group.add(run);
 
     // 縦の桟は数が多いのでまとめて描く。

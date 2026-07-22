@@ -179,14 +179,25 @@ function buildRows(): SeatRow[] {
   const rows = [...SEAT_ROW_LAYOUT, ...BALCONY_ROW_LAYOUT].map((layout) => {
     const spec = specsBySource.get(layout.block);
     if (!spec) throw new Error(`未知のブロック: ${layout.block}`);
-    // リングサイドはリングとの間の黒マットと柵のぶんだけ後ろへ下げる。
-    const setback = spec.kind === 'flat' ? RINGSIDE.setback : 0;
     const depth =
       layout.seats.reduce((sum, [, x, z]) => sum + depthOf(spec.side, x, z), 0) /
-        layout.seats.length +
-      setback;
-    return { block: spec, row: layout.row, depth, y: 0, seats: [] as Seat[], layout, setback };
+      layout.seats.length;
+    return { block: spec, row: layout.row, depth, y: 0, seats: [] as Seat[], layout, setback: 0 };
   });
+
+  // リングサイドの列だけは、リングとの間の黒いマットと柵に場所を取られるので、
+  // 座席表の位置ではなく柵の外側からパイプ椅子のピッチで並べ直す。
+  // 列の中の並び（横方向）は座席表のまま。
+  for (const spec of BLOCK_SPECS) {
+    if (spec.kind !== 'flat') continue;
+    const ringside = rows.filter((row) => row.block === spec).sort((a, b) => a.depth - b.depth);
+    ringside.forEach((row, index) => {
+      const depth =
+        RINGSIDE.barrier[spec.side] + RINGSIDE.frontGap + index * RINGSIDE.pitch;
+      row.setback = round(depth - row.depth);
+      row.depth = round(depth);
+    });
+  }
 
   // 斜面の起点は、その側のスタンドの最前列。ステージ席は北側スタンドの斜面に乗る。
   // バルコニーは2階の別の床なので、同じ側でもスタンドとは起点を分ける。

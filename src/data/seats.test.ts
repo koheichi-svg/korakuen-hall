@@ -40,7 +40,7 @@ describe('座席データ', () => {
     for (const code of ['RN', 'RS', 'RE', 'RW']) {
       const front = rowsOfBlock(block(code))[0];
       // 黒いマットと柵のぶんだけ座席表の位置から下げてある。
-      expect(front.depth).toBeGreaterThan(RINGSIDE.barrier + 0.3);
+      expect(front.depth).toBeGreaterThan(RINGSIDE.barrier[front.block.side] + 0.3);
     }
   });
 
