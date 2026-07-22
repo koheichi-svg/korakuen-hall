@@ -55,6 +55,7 @@ export function createHallScene(): THREE.Scene {
   scene.add(createRingsideFloor());
   scene.add(createPeople());
   scene.add(createStands());
+  scene.add(createStages());
   scene.add(createSeatFurniture());
   scene.add(...createLights());
 
@@ -984,6 +985,45 @@ function createStands(): THREE.Group {
       group.add(createFrontRail(block.side, rows[0], pitch));
       group.add(createEntrances(rows, pitch));
     }
+  }
+
+  return group;
+}
+
+/**
+ * ステージ席が乗る平らなステージ（東・西）。
+ * ひな壇と違って段はなく、北側スタンドのD列と同じ高さの台に3列が並ぶ。
+ */
+function createStages(): THREE.Group {
+  const group = new THREE.Group();
+
+  for (const block of BLOCKS) {
+    if (block.kind !== 'stage') continue;
+    const seats = rowsOfBlock(block).flatMap((row) => row.seats);
+    if (seats.length === 0) continue;
+
+    const xs = seats.map((seat) => seat.x);
+    const zs = seats.map((seat) => seat.z);
+    const minX = Math.min(...xs) - 0.4;
+    const maxX = Math.max(...xs) + 0.4;
+    const minZ = Math.min(...zs) - 0.45;
+    const maxZ = Math.max(...zs) + 0.45;
+    const height = seats[0].y;
+
+    const deck = new THREE.Mesh(
+      new THREE.BoxGeometry(maxX - minX, height, maxZ - minZ),
+      standard(COLOR.wood, 0.95),
+    );
+    deck.position.set((minX + maxX) / 2, height / 2, (minZ + maxZ) / 2);
+    group.add(deck);
+
+    // リング側（南）の見切り。ひな壇の段鼻と同じ黒。
+    const nosing = new THREE.Mesh(
+      new THREE.BoxGeometry(maxX - minX, 0.12, 0.1),
+      standard(COLOR.woodEdge, 0.8),
+    );
+    nosing.position.set((minX + maxX) / 2, height - 0.02, maxZ);
+    group.add(nosing);
   }
 
   return group;

@@ -1,13 +1,14 @@
 import { BALCONY_ROW_LAYOUT } from './balcony-layout';
-import { RAKE, RINGSIDE } from './hall';
+import { RAKE, RINGSIDE, STAGE } from './hall';
 import { SEAT_ROW_LAYOUT } from './seat-layout.generated';
 
 export type Side = 'N' | 'S' | 'E' | 'W';
 /**
  * 床の高さの決まり方。
- * flat = 平場（高さ0、リングサイド）、stand = ひな壇・スタンド、balcony = 2階バルコニー。
+ * flat = 平場（高さ0、リングサイド）、stand = ひな壇・スタンド、
+ * stage = 平らなステージの上（ステージ席）、balcony = 2階バルコニー。
  */
-export type BlockKind = 'flat' | 'stand' | 'balcony';
+export type BlockKind = 'flat' | 'stand' | 'stage' | 'balcony';
 /** そのブロックに置いてある椅子。3Dの見た目はこれで決まる。none は椅子を描かない。 */
 export type Furniture = 'folding' | 'fixed' | 'bench' | 'none';
 
@@ -77,14 +78,14 @@ const BLOCK_SPECS: BlockSpec[] = [
     '西側スタンド',
     '西スタンド',
   ]),
-  // ステージ席はひな壇の上だが、置いてあるのはリングサイドと同じ折りたたみ椅子。
-  block('STE', 'STAGE_E', 'ステージ席(東)', 'N', 'stand', 'folding', [
+  // ステージ席は3列とも同じ高さの平らなステージの上。椅子はリングサイドと同じ折りたたみ椅子。
+  block('STE', 'STAGE_E', 'ステージ席(東)', 'N', 'stage', 'folding', [
     'STE',
     'ステージ東',
     'ステージ席東',
     '東ステージ',
   ]),
-  block('STW', 'STAGE_W', 'ステージ席(西)', 'N', 'stand', 'folding', [
+  block('STW', 'STAGE_W', 'ステージ席(西)', 'N', 'stage', 'folding', [
     'STW',
     'ステージ西',
     'ステージ席西',
@@ -199,7 +200,7 @@ function buildRows(): SeatRow[] {
     });
   }
 
-  // 斜面の起点は、その側のスタンドの最前列。ステージ席は北側スタンドの斜面に乗る。
+  // 斜面の起点は、その側のスタンドの最前列。
   // バルコニーは2階の別の床なので、同じ側でもスタンドとは起点を分ける。
   const rakeKey = (spec: BlockSpec) => `${spec.kind}:${spec.side}`;
   const frontDepth = new Map<string, number>();
@@ -211,14 +212,23 @@ function buildRows(): SeatRow[] {
   }
 
   for (const row of rows) {
-    if (row.block.kind === 'flat') {
-      row.y = 0;
+    if (row.block.kind === 'flat' || row.block.kind === 'stage') {
+      row.y = 0; // ステージ席はこのあと、北側スタンドの高さに合わせて入れ直す。
     } else {
       const rake = row.block.kind === 'balcony' ? RAKE.balcony : RAKE_BY_SIDE[row.block.side];
       const front = frontDepth.get(rakeKey(row.block)) ?? row.depth;
       row.y = round(rake.base + Math.max(0, row.depth - front) * rake.slope);
     }
+  }
 
+  // ステージは平らで、高さは北側スタンドの決まった列に合わせる。
+  const stageY =
+    rows.find((row) => row.block.code === 'N' && row.row === STAGE.matchNorthRow)?.y ?? 0;
+  for (const row of rows) {
+    if (row.block.kind === 'stage') row.y = stageY;
+  }
+
+  for (const row of rows) {
     row.seats = row.layout.seats.map(([number, x, z]) => ({
       id: seatId(row.block.code, row.row, number),
       block: row.block,

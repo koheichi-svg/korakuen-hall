@@ -65,11 +65,13 @@ describe('座席データ', () => {
         expect(rows[i].y).toBeGreaterThan(rows[i - 1].y);
       }
     }
-    // ステージ席は北側スタンドの斜面の途中に乗る。
-    const stageFront = rowsOfBlock(block('STE'))[0];
-    const northRows = rowsOfBlock(block('N'));
-    expect(stageFront.y).toBeGreaterThan(northRows[0].y);
-    expect(stageFront.y).toBeLessThan(northRows[northRows.length - 1].y);
+    // ステージ席は3列とも同じ高さ（北側スタンドのD列と同じ）の平らなステージの上。
+    for (const code of ['STE', 'STW']) {
+      const stage = rowsOfBlock(block(code));
+      expect(stage.length).toBe(3);
+      const northD = rowsOfBlock(block('N')).find((row) => row.row === 'D')!;
+      for (const row of stage) expect(row.y).toBe(northD.y);
+    }
   });
 
   it('南側は北側より奥行きが深い（リングは北寄り）', () => {
