@@ -17,9 +17,9 @@ const COLOR = {
   // ひな壇は白木のベンチ（写真では番号が白くステンシルされている）。
   wood: 0xd6ad7c,
   woodEdge: 0x4a3b2c,
-  wall: 0xd6ccb8,
+  wall: 0xded5c3,
   wallBand: 0x5a4a3a,
-  ceiling: 0xe2dac9,
+  ceiling: 0xefeade,
   structure: 0x8a8278,
   // 南側スタンドの固定席: オレンジのビニール張り、肘掛けと背面シェルは焦げ茶。
   standSeat: 0xd2541f,
@@ -48,7 +48,7 @@ const COLOR = {
 
 export function createHallScene(): THREE.Scene {
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0e0d0b);
+  scene.background = new THREE.Color(0x17150f);
 
   scene.add(createShell());
   scene.add(createRing());
@@ -157,7 +157,8 @@ function createShell(): THREE.Group {
   const wall = standard(COLOR.wall, 1);
   // 看板は「客席のすぐ後ろの壁」に付ける。東西は1階の内壁（INNER_WALL）、
   // 南北はホールの外壁。南北はひな壇がせり上がってくるぶん高い位置に逃がす。
-  const signFace = INNER_WALL.x - INNER_WALL.thickness / 2 - 0.06;
+  // 東西の壁はカーテンで覆われているので、看板はその手前に掛ける。
+  const signFace = INNER_WALL.x - INNER_WALL.thickness / 2 - CURTAIN.foldRadius * 2 - 0.06;
   const walls: [Side, string, string, number, number, number, number, [number, number, number]][] =
     [
       ['N', '北', 'NORTH', width, centerX, HALL.minZ, 0, [0, 5.1, HALL.minZ + 0.06]],
@@ -214,8 +215,17 @@ function createShell(): THREE.Group {
   }
 
   group.add(createInnerWalls());
+  group.add(createCurtains());
   group.add(createBalconies());
   group.add(createScreen());
+  // 北の壁を照らすグリーンのウォッシュ（写真でスクリーンの両脇に見える帯）。
+  const wash = new THREE.MeshBasicMaterial({ color: 0x2fa864 });
+  for (let i = 0; i < 6; i++) {
+    const band = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 2.2), wash);
+    const offset = 3.6 + (i % 3) * 1.4;
+    band.position.set(i < 3 ? -offset : offset, 5.9, HALL.minZ + 0.07);
+    group.add(band);
+  }
   group.add(createCeilingRig());
   return group;
 }
@@ -322,6 +332,99 @@ function createInnerWalls(): THREE.Group {
   return group;
 }
 
+/** 東西の壁を覆うカーテン。 */
+const CURTAIN = {
+  color: 0xd9cfba,
+  /** ひだ1本の太さと間隔。 */
+  foldRadius: 0.13,
+  spacing: 0.3,
+  /** 1階のカーテンの上端と下端。 */
+  bottom: 0.35,
+} as const;
+
+/**
+ * 東西の壁を覆うカーテン。
+ * 写真だと東西の後方は壁がむき出しではなく、床から2階の高さまで
+ * クリーム色のひだのあるカーテンで仕切られている。
+ * ひだは縦の丸棒をずらりと並べて表す（数が多いので InstancedMesh）。
+ */
+function createCurtains(): THREE.Group {
+  const group = new THREE.Group();
+  const { x: innerX, southZ, thickness, exits } = INNER_WALL;
+  const face = innerX - thickness / 2 - CURTAIN.foldRadius;
+
+  // 壁のうち、出入口で切れていない範囲。
+  const spans: [number, number][] = [];
+  let cursor = HALL.minZ + 0.2;
+  for (const exit of exits) {
+    spans.push([cursor, exit.minZ - 0.15]);
+    cursor = exit.maxZ + 0.15;
+  }
+  spans.push([cursor, southZ - 0.2]);
+
+  const top = BALCONY.floorY - 0.2;
+  const height = top - CURTAIN.bottom;
+  const material = standard(CURTAIN.color, 0.95);
+  const dummy = new THREE.Object3D();
+  const folds: THREE.Matrix4[] = [];
+  const rails: THREE.Mesh[] = [];
+
+  for (const sign of [1, -1]) {
+    for (const [from, to] of spans) {
+      if (to - from < 0.4) continue;
+      const count = Math.max(2, Math.round((to - from) / CURTAIN.spacing));
+      for (let i = 0; i <= count; i++) {
+        dummy.position.set(sign * face, CURTAIN.bottom + height / 2, from + ((to - from) * i) / count);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        folds.push(dummy.matrix.clone());
+      }
+      // カーテンレールの見切り。
+      const rail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.14, to - from),
+        standard(0xb8ad98, 0.9),
+      );
+      rail.position.set(sign * (innerX - thickness / 2 - 0.14), top + 0.05, (from + to) / 2);
+      rails.push(rail);
+    }
+  }
+
+  const fold = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(CURTAIN.foldRadius, CURTAIN.foldRadius, height, 6),
+    material,
+    folds.length,
+  );
+  folds.forEach((matrix, index) => fold.setMatrixAt(index, matrix));
+  fold.instanceMatrix.needsUpdate = true;
+  group.add(fold, ...rails);
+
+  // バルコニーの奥（外壁側）にも同じカーテンが下がっている。
+  const balconyFolds: THREE.Matrix4[] = [];
+  const balconyHeight = BALCONY.soffitY - BALCONY.floorY - 0.1;
+  for (const sign of [1, -1]) {
+    const count = Math.round((BALCONY.maxZ - BALCONY.minZ) / CURTAIN.spacing);
+    for (let i = 0; i <= count; i++) {
+      dummy.position.set(
+        sign * (BALCONY.outerX - 0.15),
+        BALCONY.floorY + 0.45 + balconyHeight / 2,
+        BALCONY.minZ + ((BALCONY.maxZ - BALCONY.minZ) * i) / count,
+      );
+      dummy.updateMatrix();
+      balconyFolds.push(dummy.matrix.clone());
+    }
+  }
+  const balconyCurtain = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(CURTAIN.foldRadius, CURTAIN.foldRadius, balconyHeight, 6),
+    material,
+    balconyFolds.length,
+  );
+  balconyFolds.forEach((matrix, index) => balconyCurtain.setMatrixAt(index, matrix));
+  balconyCurtain.instanceMatrix.needsUpdate = true;
+  group.add(balconyCurtain);
+
+  return group;
+}
+
 /**
  * 東西の壁の上部にある2階バルコニー席。
  *
@@ -385,7 +488,7 @@ function createBalconies(): THREE.Group {
         standard(color, 0.9),
       );
       banner.position.set(
-        sign * (innerX - 0.02),
+        sign * (innerX - 0.35),
         floorY - 0.9,
         minZ + (span / banners.length) * (index + 0.5),
       );
@@ -1505,11 +1608,10 @@ function instancedParts(seats: Seat[], parts: ChairPart[]): THREE.Group {
 }
 
 function createLights(): THREE.Object3D[] {
-  // 試合中の場内は、リングだけがトラスのスポットで明るく、客席は
-  // 落とした暖色の灯りでかなり暗い。環境光を上げると陰影が消えて
-  // 「昼間の体育館」になってしまうので、全体を低めに抑えてリングとの差で見せる。
-  const ambient = new THREE.AmbientLight(0xffeed4, 0.26);
-  const sky = new THREE.HemisphereLight(0xffe9cf, 0x2a2119, 0.22);
+  // 写真の場内は、白い天井と客席がそこそこ明るく、リングだけが一段明るい。
+  // 環境光を上げすぎると陰影が消えて平坦になるので、リングとの差は残す。
+  const ambient = new THREE.AmbientLight(0xfff2df, 0.44);
+  const sky = new THREE.HemisphereLight(0xfff0dc, 0x3a2f24, 0.38);
 
   // リングを照らすトラスのスポット。
   // 強すぎるとマットの緑が白飛びするので控えめに。
@@ -1525,7 +1627,7 @@ function createLights(): THREE.Object3D[] {
     [-10, 0],
     [10, 0],
   ]) {
-    const lamp = new THREE.PointLight(0xffdcae, 130, 28, 1.6);
+    const lamp = new THREE.PointLight(0xffe6c4, 190, 30, 1.5);
     lamp.position.set(x, HALL.ceilingY - 1.0, z);
     house.push(lamp);
   }
