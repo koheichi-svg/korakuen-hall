@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BALCONY, RING, RINGSIDE } from './hall';
+import { BALCONY, RING, RINGSIDE, STAGE } from './hall';
 import { BLOCKS, SEAT_ROWS, SEATS, getSeat, parseSeatId, rowsOfBlock } from './seats';
 
 const block = (code: string) => BLOCKS.find((b) => b.code === code)!;
@@ -65,12 +65,12 @@ describe('座席データ', () => {
         expect(rows[i].y).toBeGreaterThan(rows[i - 1].y);
       }
     }
-    // ステージ席は3列とも同じ高さ（北側スタンドのD列と同じ）の平らなステージの上。
+    // ステージ席は3列とも同じ高さ（北側スタンドのC列と同じ）の平らなステージの上。
     for (const code of ['STE', 'STW']) {
       const stage = rowsOfBlock(block(code));
       expect(stage.length).toBe(3);
-      const northD = rowsOfBlock(block('N')).find((row) => row.row === 'D')!;
-      for (const row of stage) expect(row.y).toBe(northD.y);
+      const northC = rowsOfBlock(block('N')).find((row) => row.row === STAGE.matchNorthRow)!;
+      for (const row of stage) expect(row.y).toBe(northC.y);
     }
   });
 

@@ -992,7 +992,7 @@ function createStands(): THREE.Group {
 
 /**
  * ステージ席が乗る平らなステージ（東・西）。
- * ひな壇と違って段はなく、北側スタンドのD列と同じ高さの台に3列が並ぶ。
+ * ひな壇と違って段はなく、北側スタンドのC列と同じ高さの台に3列が並ぶ。
  */
 function createStages(): THREE.Group {
   const group = new THREE.Group();
