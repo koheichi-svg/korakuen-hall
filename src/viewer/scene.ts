@@ -234,21 +234,25 @@ const INNER_WALL = {
   southZ: 7.6,
   thickness: 0.3,
   /**
-   * 東西スタンドの南端にある出入口（公式座席表の1番出口・4番出口）。
-   * ここだけ壁がなく、外の通路へ抜けている。
+   * 東西の壁にある出入口。ここだけ壁がなく、外の通路へ抜けている。
+   * 南寄りが公式座席表の1番出口・4番出口、北寄りが北側スタンドとの間の通路。
    */
-  exit: { minZ: 5.6, maxZ: 7.4, height: 2.4 },
+  exitHeight: 3.6,
+  exits: [
+    { minZ: -8.4, maxZ: -6.6 },
+    { minZ: 5.6, maxZ: 7.4 },
+  ],
 } as const;
 
 /**
  * 東西スタンドの後ろと、南側スタンドの両脇に立つ壁。
  * 東西はバルコニーの開口ぶんだけ背が低く（そこから上が2階の客席）、
- * それ以外は天井まで立ち上がる。東西スタンドの南端は出入口なので壁を抜く。
+ * それ以外は天井まで立ち上がる。東西の壁は出入口の範囲だけ抜く。
  */
 function createInnerWalls(): THREE.Group {
   const group = new THREE.Group();
   const material = standard(COLOR.wall, 1);
-  const { x: innerX, southX, southZ, thickness, exit } = INNER_WALL;
+  const { x: innerX, southX, southZ, thickness, exits, exitHeight } = INNER_WALL;
 
   /** z方向に伸びる壁を1枚。出入口にかかる範囲は、その高さぶんだけ抜く。 */
   const wallAlongZ = (x: number, fromZ: number, toZ: number, top: number) => {
@@ -259,17 +263,21 @@ function createInnerWalls(): THREE.Group {
       group.add(mesh);
     };
 
-    const opening = Math.abs(x) === innerX && fromZ < exit.maxZ && toZ > exit.minZ;
-    if (!opening) {
-      panel(fromZ, toZ, 0, top);
-      return;
+    const openings =
+      Math.abs(x) === innerX
+        ? exits.filter((exit) => exit.minZ < toZ && exit.maxZ > fromZ)
+        : [];
+
+    let cursor = fromZ;
+    for (const exit of openings) {
+      const from = Math.max(fromZ, exit.minZ);
+      const to = Math.min(toZ, exit.maxZ);
+      panel(cursor, from, 0, top);
+      // 開口の上に残る壁（まぐさ）。
+      panel(from, to, exitHeight, top - exitHeight);
+      cursor = to;
     }
-    const from = Math.max(fromZ, exit.minZ);
-    const to = Math.min(toZ, exit.maxZ);
-    panel(fromZ, from, 0, top);
-    panel(to, toZ, 0, top);
-    // 開口の上に残る壁（まぐさ）。
-    panel(from, to, exit.height, top - exit.height);
+    panel(cursor, toZ, 0, top);
   };
 
   for (const sign of [1, -1]) {
@@ -286,33 +294,29 @@ function createInnerWalls(): THREE.Group {
     jog.position.set((sign * (innerX + southX)) / 2, HALL.ceilingY / 2, southZ);
     group.add(jog);
 
-    // 出入口。開口の先は暗い通路で、上に緑の誘導灯が付く。
-    const width = exit.maxZ - exit.minZ;
-    const centerZ = (exit.minZ + exit.maxZ) / 2;
-    const corridor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.1, exit.height, width),
-      standard(0x14151a, 0.95),
-    );
-    corridor.position.set(sign * (innerX + thickness / 2 + 0.4), exit.height / 2, centerZ);
-    group.add(corridor);
-
+    // 出入口の枠と、その先の暗い通路。
     const frame = standard(0x4a423a, 0.8);
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, width + 0.24), frame);
-    lintel.position.set(sign * innerX, exit.height + 0.06, centerZ);
-    group.add(lintel);
-    for (const z of [exit.minZ - 0.06, exit.maxZ + 0.06]) {
-      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.36, exit.height + 0.12, 0.12), frame);
-      jamb.position.set(sign * innerX, (exit.height + 0.12) / 2, z);
-      group.add(jamb);
-    }
+    for (const exit of exits) {
+      const width = exit.maxZ - exit.minZ;
+      const centerZ = (exit.minZ + exit.maxZ) / 2;
 
-    const sign3d = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.52, 0.24),
-      new THREE.MeshBasicMaterial({ map: createExitSignTexture() }),
-    );
-    sign3d.position.set(sign * (innerX - thickness / 2 - 0.06), exit.height + 0.34, centerZ);
-    sign3d.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
-    group.add(sign3d);
+      const corridor = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, exitHeight, width),
+        standard(0x14151a, 0.95),
+      );
+      corridor.position.set(sign * (innerX + thickness / 2 + 0.4), exitHeight / 2, centerZ);
+      group.add(corridor);
+
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, width + 0.24), frame);
+      lintel.position.set(sign * innerX, exitHeight + 0.06, centerZ);
+      group.add(lintel);
+
+      for (const z of [exit.minZ - 0.06, exit.maxZ + 0.06]) {
+        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.36, exitHeight + 0.12, 0.12), frame);
+        jamb.position.set(sign * innerX, (exitHeight + 0.12) / 2, z);
+        group.add(jamb);
+      }
+    }
   }
 
   return group;
@@ -1168,7 +1172,7 @@ function tiersOfBlock(rows: SeatRow[], pitch: number): Tier[] {
  * 南側スタンドの中ほど（I〜L列）にある2か所の出入り口。
  *
  * 座席が抜けている区間の床を1段手前の列の高さまで下げた通路で、突き当たり
- * （1段上の列の蹴上げ）に扉と誘導灯が付く。北端は手前の列の段と同じ高さで
+ * （1段上の列の蹴上げ）に扉が付く。北端は手前の列の段と同じ高さで
  * つながっていて、そのまま通路に出られる。南側スタンド専用なので z = 奥行き。
  */
 function createEntrances(rows: SeatRow[], pitch: number): THREE.Group {
@@ -1225,15 +1229,6 @@ function createEntrances(rows: SeatRow[], pitch: number): THREE.Group {
       group.add(bar);
     }
 
-    // 扉の上の緑の誘導灯。
-    const exit = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.52, 0.24),
-      new THREE.MeshBasicMaterial({ map: createExitSignTexture() }),
-    );
-    exit.position.set(center, floorY + doorHeight + 0.26, zBack - 0.12);
-    exit.rotation.y = Math.PI;
-    group.add(exit);
-
     // 通路の両脇、座席との段差に立つ手すり。
     for (let index = first; index <= last; index++) {
       const tier = tiers[index];
@@ -1263,21 +1258,6 @@ function createSideRail(x: number, zFrom: number, zTo: number, y: number): THREE
     rail.add(post);
   }
   return rail;
-}
-
-/** 緑の誘導灯（非常口）。 */
-function createExitSignTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 104;
-  canvas.height = 48;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#0f9d58';
-  ctx.fillRect(0, 0, 104, 48);
-  ctx.fillStyle = '#f2fbf5';
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 26px sans-serif';
-  ctx.fillText('非常口', 52, 34);
-  return new THREE.CanvasTexture(canvas);
 }
 
 /** その列の中で座席が大きく抜けている区間（＝出入り口）。 */
