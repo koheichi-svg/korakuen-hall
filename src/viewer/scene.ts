@@ -56,6 +56,7 @@ export function createHallScene(): THREE.Scene {
   scene.add(createPeople());
   scene.add(createStands());
   scene.add(createStages());
+  scene.add(createStageStairs());
   scene.add(createSeatFurniture());
   scene.add(...createLights());
 
@@ -1024,6 +1025,59 @@ function createStages(): THREE.Group {
     );
     nosing.position.set((minX + maxX) / 2, height - 0.02, maxZ);
     group.add(nosing);
+  }
+
+  return group;
+}
+
+/**
+ * 北側スタンドとステージ席の間の階段。
+ * 北側の前寄りの列（A〜F）はステージ席のぶん幅が狭く、その両脇が空いている。
+ * ここは客席ではなく、ステージ席や北側の奥の列へ上がる階段になっている（手すりはない）。
+ * 段の高さ・奥行きは北側スタンドの各列に合わせるので、傾斜を変えれば一緒に動く。
+ */
+function createStageStairs(): THREE.Group {
+  const group = new THREE.Group();
+  const north = BLOCKS.find((block) => block.code === 'N');
+  if (!north) return group;
+  const rows = rowsOfBlock(north);
+  const tiers = tiersOfBlock(rows, rowPitch(rows));
+  const narrow = lateralExtent(rows[0]);
+
+  // 北側の狭い列とステージの間に残っている帯。
+  const gaps: [number, number][] = [];
+  for (const code of ['STE', 'STW']) {
+    const stage = BLOCKS.find((block) => block.code === code);
+    if (!stage) continue;
+    const xs = rowsOfBlock(stage).flatMap((row) => row.seats.map((seat) => seat.x));
+    gaps.push(
+      code === 'STE'
+        ? [narrow.max + 0.25, Math.min(...xs) - 0.4]
+        : [Math.max(...xs) + 0.4, narrow.min - 0.25],
+    );
+  }
+
+  for (const [min, max] of gaps) {
+    for (const tier of tiers) {
+      // 座席がこの帯まで広がったら、そこから奥は普通のひな壇。
+      const extent = lateralExtent(tier.row);
+      if (extent.min <= min && extent.max >= max) break;
+
+      const height = Math.max(tier.row.y, 0.12);
+      const step = new THREE.Mesh(
+        new THREE.BoxGeometry(max - min, height, tier.back - tier.front),
+        standard(COLOR.wood, 0.95),
+      );
+      step.position.set((min + max) / 2, height / 2, -(tier.front + tier.back) / 2);
+      group.add(step);
+
+      const nosing = new THREE.Mesh(
+        new THREE.BoxGeometry(max - min, 0.11, 0.08),
+        standard(COLOR.woodEdge, 0.8),
+      );
+      nosing.position.set((min + max) / 2, tier.row.y + 0.03, -tier.front);
+      group.add(nosing);
+    }
   }
 
   return group;
