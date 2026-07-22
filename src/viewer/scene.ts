@@ -1467,7 +1467,7 @@ function rowPitch(rows: SeatRow[]): number {
  * 一脚ずつリング中心を向いたりはしない。ブロックの外側（＝背もたれ側）が
  * 椅子のローカル +Z になるように、側ごとの yaw を固定で与える。
  */
-const OUTWARD_YAW: Record<Side, number> = {
+export const OUTWARD_YAW: Record<Side, number> = {
   S: 0,
   N: Math.PI,
   E: Math.PI / 2,

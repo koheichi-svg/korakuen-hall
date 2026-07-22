@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { EYE_HEIGHT, RING_FOCUS } from '../data/hall';
 import type { Seat } from '../data/seats';
+import { createCrowd, type Crowd, type CrowdLevel } from './crowd';
 import { createHallScene } from './scene';
 
 const MIN_FOV = 22;
@@ -12,6 +13,8 @@ const MAX_PITCH = THREE.MathUtils.degToRad(80);
 export interface SeatViewer {
   /** その座席に着席した状態にする（カメラ位置＝座席、初期の視線＝リング）。 */
   moveToSeat(seat: Seat): void;
+  /** 客席の入りを切り替える。 */
+  setCrowd(level: CrowdLevel): void;
   /** 視線だけを初期状態（リング正面）に戻す。 */
   recenter(): void;
   /** 描画ループの開始・停止。ビューアを隠している間は止める。 */
@@ -121,9 +124,29 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
     renderer.render(scene, camera);
   };
 
+  // 観客。段階ごとに一度だけ組み立てて使い回す（毎回作り直すと切り替えが重い）。
+  const crowds = new Map<CrowdLevel, Crowd>();
+  let crowd: Crowd | undefined;
+  let seatId: string | undefined;
+
+  const setCrowd = (level: CrowdLevel) => {
+    if (crowd) scene.remove(crowd.group);
+    let next = crowds.get(level);
+    if (!next) {
+      next = createCrowd(level);
+      crowds.set(level, next);
+    }
+    next.setEmptySeat(seatId);
+    scene.add(next.group);
+    crowd = next;
+  };
+
   return {
     moveToSeat(seat) {
       camera.position.set(seat.x, seat.y + EYE_HEIGHT, seat.z);
+      // 自分の席の観客は消す（頭が目の前に来てしまうため）。
+      seatId = seat.id;
+      crowd?.setEmptySeat(seatId);
 
       const target = new THREE.Vector3(...RING_FOCUS);
       const toRing = target.sub(camera.position);
@@ -136,6 +159,7 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
       camera.updateProjectionMatrix();
       applyOrientation();
     },
+    setCrowd,
     recenter() {
       yaw = homeYaw;
       pitch = homePitch;

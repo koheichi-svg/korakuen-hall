@@ -1,5 +1,6 @@
 import { parseSeatId, seatLabel, type Seat } from './data/seats';
 import { createSeatMap } from './seatmap/seatmap';
+import { CROWD_LEVELS, type CrowdLevel } from './viewer/crowd';
 import { createSeatViewer } from './viewer/viewer';
 
 const mapPanel = requireElement('map-panel');
@@ -12,6 +13,10 @@ const form = requireElement<HTMLFormElement>('seat-form');
 const seatMap = createSeatMap(requireElement('seatmap'));
 // 3Dは初回に座席が選ばれるまで作らない（起動時は座席表だけ見せる）。
 let viewer: ReturnType<typeof createSeatViewer> | undefined;
+
+// 観客の入り。初期状態は「なし」。3Dを作る前に押されても覚えておく。
+let crowdLevel: CrowdLevel = 'none';
+const crowdButtons = createCrowdButtons();
 
 seatMap.onSelect(showSeat);
 
@@ -48,6 +53,30 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !viewerPanel.classList.contains('is-hidden')) showMap();
 });
 
+/** 観客の入りを切り替えるボタン。段階の一覧は crowd.ts が持っている。 */
+function createCrowdButtons(): Map<CrowdLevel, HTMLButtonElement> {
+  const host = requireElement('crowd-controls');
+  const buttons = new Map<CrowdLevel, HTMLButtonElement>();
+
+  for (const { level, label } of CROWD_LEVELS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.classList.toggle('is-active', level === crowdLevel);
+    button.addEventListener('click', () => setCrowdLevel(level));
+    host.append(button);
+    buttons.set(level, button);
+  }
+
+  return buttons;
+}
+
+function setCrowdLevel(level: CrowdLevel): void {
+  crowdLevel = level;
+  for (const [key, button] of crowdButtons) button.classList.toggle('is-active', key === level);
+  viewer?.setCrowd(level);
+}
+
 function showSeat(seat: Seat): void {
   viewer ??= createSeatViewer(requireElement('viewer'));
   seatMap.setSelected(seat.id);
@@ -58,6 +87,7 @@ function showSeat(seat: Seat): void {
   mapPanel.classList.add('is-hidden');
   viewerPanel.classList.remove('is-hidden');
   viewer.moveToSeat(seat);
+  viewer.setCrowd(crowdLevel);
   viewer.start();
 }
 
