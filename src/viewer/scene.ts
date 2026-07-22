@@ -699,11 +699,11 @@ function createRing(): THREE.Group {
 
   // マット中央のスポンサーロゴ。実物と同じく、キャンバスに薄く刷られている程度。
   const logo = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.4, 1.1),
+    new THREE.PlaneGeometry(4.3, 1.4),
     new THREE.MeshStandardMaterial({
       map: createMatLogoTexture(),
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.72,
       roughness: 0.8,
       depthWrite: false,
     }),
@@ -793,9 +793,9 @@ function createMatLogoTexture(): THREE.CanvasTexture {
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 116px sans-serif';
-  ctx.fillStyle = 'rgba(28, 30, 38, 0.55)';
-  ctx.filter = 'blur(2px)';
+  ctx.font = 'bold 124px sans-serif';
+  ctx.fillStyle = 'rgba(22, 24, 32, 0.9)';
+  ctx.filter = 'blur(1.2px)';
   ctx.fillText('ABEMA', 256, 88);
 
   return new THREE.CanvasTexture(canvas);
