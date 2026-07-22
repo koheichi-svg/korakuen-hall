@@ -240,7 +240,8 @@ function createBlockLabels(): SVGGElement {
   const group = document.createElementNS(SVG_NS, 'g');
 
   for (const block of BLOCKS) {
-    if (block.kind === 'flat') continue;
+    // リングサイドは席が細かくて置き場がなく、バルコニーは2階なので名前は出さない。
+    if (block.kind === 'flat' || block.kind === 'balcony') continue;
     const rows = rowsOfBlock(block);
     const back = rows[rows.length - 1];
     const horizontal = block.side === 'N' || block.side === 'S';
@@ -251,14 +252,27 @@ function createBlockLabels(): SVGGElement {
       (acc, seat) => ({ x: acc.x + seat.x / back.seats.length, z: acc.z + seat.z / back.seats.length }),
       { x: 0, z: 0 },
     );
-    const x = horizontal ? center.x : center.x + sign * gap;
-    const z = horizontal ? center.z + sign * gap : center.z;
+
+    // ステージ席は北側スタンドと同じ側を向いているので、奥に置くと
+    // 北側の席と重なる。会場の外側（東西）へ逃がす。
+    const outward = block.kind === 'stage';
+    const outwardSign = outward
+      ? Math.sign(back.seats.reduce((sum, seat) => sum + seat.x, 0))
+      : 0;
+    const x = outward
+      ? (outwardSign > 0 ? Math.max(...back.seats.map((s) => s.x)) : Math.min(...back.seats.map((s) => s.x))) +
+        outwardSign * gap
+      : horizontal
+        ? center.x
+        : center.x + sign * gap;
+    const z = outward ? center.z : horizontal ? center.z + sign * gap : center.z;
 
     const text = document.createElementNS(SVG_NS, 'text');
     text.setAttribute('x', String(x));
     text.setAttribute('y', String(z));
     text.setAttribute('class', 'block-label');
-    if (!horizontal) text.setAttribute('transform', `rotate(${sign * 90} ${x} ${z})`);
+    if (!horizontal && !outward) text.setAttribute('transform', `rotate(${sign * 90} ${x} ${z})`);
+    if (outward) text.setAttribute('transform', `rotate(${outwardSign * 90} ${x} ${z})`);
     text.textContent = block.label;
     group.append(text);
   }

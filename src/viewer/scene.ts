@@ -233,26 +233,43 @@ const INNER_WALL = {
   /** 南側スタンドの脇に切り替わるz。 */
   southZ: 7.6,
   thickness: 0.3,
+  /**
+   * 東西スタンドの南端にある出入口（公式座席表の1番出口・4番出口）。
+   * ここだけ壁がなく、外の通路へ抜けている。
+   */
+  exit: { minZ: 5.6, maxZ: 7.4, height: 2.4 },
 } as const;
 
 /**
  * 東西スタンドの後ろと、南側スタンドの両脇に立つ壁。
  * 東西はバルコニーの開口ぶんだけ背が低く（そこから上が2階の客席）、
- * それ以外は天井まで立ち上がる。
+ * それ以外は天井まで立ち上がる。東西スタンドの南端は出入口なので壁を抜く。
  */
 function createInnerWalls(): THREE.Group {
   const group = new THREE.Group();
   const material = standard(COLOR.wall, 1);
-  const { x: innerX, southX, southZ, thickness } = INNER_WALL;
+  const { x: innerX, southX, southZ, thickness, exit } = INNER_WALL;
 
-  /** z方向に伸びる壁を1枚。 */
+  /** z方向に伸びる壁を1枚。出入口にかかる範囲は、その高さぶんだけ抜く。 */
   const wallAlongZ = (x: number, fromZ: number, toZ: number, top: number) => {
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(thickness, top, toZ - fromZ),
-      material,
-    );
-    panel.position.set(x, top / 2, (fromZ + toZ) / 2);
-    group.add(panel);
+    const panel = (from: number, to: number, bottom: number, height: number) => {
+      if (to - from < 0.01 || height < 0.01) return;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(thickness, height, to - from), material);
+      mesh.position.set(x, bottom + height / 2, (from + to) / 2);
+      group.add(mesh);
+    };
+
+    const opening = Math.abs(x) === innerX && fromZ < exit.maxZ && toZ > exit.minZ;
+    if (!opening) {
+      panel(fromZ, toZ, 0, top);
+      return;
+    }
+    const from = Math.max(fromZ, exit.minZ);
+    const to = Math.min(toZ, exit.maxZ);
+    panel(fromZ, from, 0, top);
+    panel(to, toZ, 0, top);
+    // 開口の上に残る壁（まぐさ）。
+    panel(from, to, exit.height, top - exit.height);
   };
 
   for (const sign of [1, -1]) {
@@ -268,6 +285,34 @@ function createInnerWalls(): THREE.Group {
     );
     jog.position.set((sign * (innerX + southX)) / 2, HALL.ceilingY / 2, southZ);
     group.add(jog);
+
+    // 出入口。開口の先は暗い通路で、上に緑の誘導灯が付く。
+    const width = exit.maxZ - exit.minZ;
+    const centerZ = (exit.minZ + exit.maxZ) / 2;
+    const corridor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, exit.height, width),
+      standard(0x14151a, 0.95),
+    );
+    corridor.position.set(sign * (innerX + thickness / 2 + 0.4), exit.height / 2, centerZ);
+    group.add(corridor);
+
+    const frame = standard(0x4a423a, 0.8);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, width + 0.24), frame);
+    lintel.position.set(sign * innerX, exit.height + 0.06, centerZ);
+    group.add(lintel);
+    for (const z of [exit.minZ - 0.06, exit.maxZ + 0.06]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.36, exit.height + 0.12, 0.12), frame);
+      jamb.position.set(sign * innerX, (exit.height + 0.12) / 2, z);
+      group.add(jamb);
+    }
+
+    const sign3d = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.52, 0.24),
+      new THREE.MeshBasicMaterial({ map: createExitSignTexture() }),
+    );
+    sign3d.position.set(sign * (innerX - thickness / 2 - 0.06), exit.height + 0.34, centerZ);
+    sign3d.rotation.y = sign > 0 ? -Math.PI / 2 : Math.PI / 2;
+    group.add(sign3d);
   }
 
   return group;
