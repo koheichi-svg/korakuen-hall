@@ -56,18 +56,43 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
   new ResizeObserver(resize).observe(container);
   resize();
 
-  let dragPointer: number | undefined;
   const canvas = renderer.domElement;
+  const zoomTo = (fov: number) => {
+    camera.fov = THREE.MathUtils.clamp(fov, MIN_FOV, MAX_FOV);
+    camera.updateProjectionMatrix();
+  };
+
+  // 触れている指を全部覚えておく。1本なら見回し、2本ならピンチでズーム。
+  const pointers = new Map<number, { x: number; y: number }>();
+  /** ピンチ開始時の指の間隔と画角。 */
+  let pinch: { spread: number; fov: number } | undefined;
+
+  const spreadOf = () => {
+    const list = [...pointers.values()];
+    return list.length < 2 ? 0 : Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
+  };
+  const beginPinch = () => {
+    const spread = spreadOf();
+    pinch = spread > 0 ? { spread, fov: camera.fov } : undefined;
+  };
 
   canvas.addEventListener('pointerdown', (event) => {
-    if (dragPointer !== undefined) return;
-    dragPointer = event.pointerId;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.setPointerCapture(event.pointerId);
     canvas.classList.add('is-dragging');
+    beginPinch();
   });
 
   canvas.addEventListener('pointermove', (event) => {
-    if (event.pointerId !== dragPointer) return;
+    if (!pointers.has(event.pointerId)) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pinch) {
+      // 指を広げるほど画角が狭くなる＝寄る。
+      const spread = spreadOf();
+      if (spread > 0) zoomTo((pinch.fov * pinch.spread) / spread);
+      return;
+    }
     // ドラッグした方向に景色が付いてくる（＝首はその逆に振れる）向き。
     const speed = (camera.fov / DEFAULT_FOV) * 0.004;
     yaw += event.movementX * speed;
@@ -76,22 +101,18 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
   });
 
   const endDrag = (event: PointerEvent) => {
-    if (event.pointerId !== dragPointer) return;
-    dragPointer = undefined;
+    if (!pointers.delete(event.pointerId)) return;
     canvas.releasePointerCapture(event.pointerId);
-    canvas.classList.remove('is-dragging');
+    if (pointers.size === 0) canvas.classList.remove('is-dragging');
+    // 指が1本に減ったらピンチをやめて見回しに戻す。
+    beginPinch();
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
 
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
-    camera.fov = THREE.MathUtils.clamp(
-      camera.fov * Math.exp(event.deltaY * 0.0012),
-      MIN_FOV,
-      MAX_FOV,
-    );
-    camera.updateProjectionMatrix();
+    zoomTo(camera.fov * Math.exp(event.deltaY * 0.0012));
   });
 
   let frame: number | undefined;

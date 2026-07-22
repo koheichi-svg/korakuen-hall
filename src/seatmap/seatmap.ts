@@ -76,35 +76,69 @@ export function createSeatMap(container: HTMLElement): SeatMap {
     zoomAt(Math.exp(-event.deltaY * 0.0015), toLocal(event));
   });
 
-  let dragPointer: number | undefined;
-  let dragOrigin = { x: 0, y: 0 };
-  let dragStartPan = { x: 0, y: 0 };
+  // 触れている指（ポインタ）を全部覚えておく。1本ならドラッグで移動、
+  // 2本ならピンチで拡大縮小＋移動。指が増減したら、そのつど基準を取り直す。
+  const pointers = new Map<number, { x: number; y: number }>();
+  /** ジェスチャ開始時の状態。指の間隔と中心を、その時点の表示に結び付けておく。 */
+  let gesture:
+    | { anchor: { x: number; y: number }; spread: number; scale: number }
+    | undefined;
   let dragDistance = 0;
 
+  /** 指の中心（画面座標）と、指の間の距離。 */
+  const touchCenter = () => {
+    const list = [...pointers.values()];
+    const x = list.reduce((sum, point) => sum + point.x, 0) / list.length;
+    const y = list.reduce((sum, point) => sum + point.y, 0) / list.length;
+    const spread = list.length < 2 ? 0 : Math.hypot(list[0].x - list[1].x, list[0].y - list[1].y);
+    return { center: { x, y }, spread };
+  };
+
+  const beginGesture = () => {
+    if (pointers.size === 0) {
+      gesture = undefined;
+      return;
+    }
+    const { center, spread } = touchCenter();
+    const local = toLocal({ clientX: center.x, clientY: center.y });
+    // 指の中心が今つかんでいる「地図上の点」。拡大しても、ここが指の下に残る。
+    gesture = {
+      anchor: { x: (local.x - panX) / scale, y: (local.y - panY) / scale },
+      spread,
+      scale,
+    };
+  };
+
   svg.addEventListener('pointerdown', (event) => {
-    if (dragPointer !== undefined) return;
-    dragPointer = event.pointerId;
-    dragOrigin = toLocal(event);
-    dragStartPan = { x: panX, y: panY };
-    dragDistance = 0;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) dragDistance = 0;
     svg.setPointerCapture(event.pointerId);
+    beginGesture();
   });
 
   svg.addEventListener('pointermove', (event) => {
-    if (event.pointerId !== dragPointer) return;
-    const local = toLocal(event);
-    panX = dragStartPan.x + (local.x - dragOrigin.x);
-    panY = dragStartPan.y + (local.y - dragOrigin.y);
+    if (!pointers.has(event.pointerId) || !gesture) return;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     dragDistance += Math.hypot(event.movementX, event.movementY);
+
+    const { center, spread } = touchCenter();
+    if (gesture.spread > 0 && spread > 0) {
+      scale = clamp((gesture.scale * spread) / gesture.spread, MIN_SCALE, MAX_SCALE);
+    }
+    const local = toLocal({ clientX: center.x, clientY: center.y });
+    panX = local.x - gesture.anchor.x * scale;
+    panY = local.y - gesture.anchor.y * scale;
     applyTransform();
   });
 
   const handlers: ((seat: Seat) => void)[] = [];
 
   const endDrag = (event: PointerEvent) => {
-    if (event.pointerId !== dragPointer) return;
-    dragPointer = undefined;
+    if (!pointers.delete(event.pointerId)) return;
     svg.releasePointerCapture(event.pointerId);
+    // 残った指で操作を続けられるように、基準を取り直す。
+    beginGesture();
+    if (pointers.size > 0) return;
 
     // ドラッグ中はポインタをSVGごとキャプチャしている＝click は座席rectではなく
     // SVGに飛んでくるので、離した位置から座席を引き直す。
