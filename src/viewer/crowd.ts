@@ -26,7 +26,11 @@ export const CROWD_LEVELS: { level: CrowdLevel; label: string }[] = [
   { level: 'none', label: 'なし' },
 ];
 
-/** その段階で席が埋まる割合と、立ち見が出るかどうか。 */
+/**
+ * その段階で席が埋まる割合と、立ち見が出るかどうか。
+ * 立ち見（バルコニー席と、南側スタンド最後列の後ろ）が出るのは札止めのときだけで、
+ * それ以外では2階には誰も上げない。
+ */
 const OCCUPANCY: Record<Exclude<CrowdLevel, 'none'>, { ratio: number; standing: boolean }> = {
   soldout: { ratio: 1, standing: true },
   packed: { ratio: 0.9, standing: false },
@@ -99,6 +103,8 @@ export function createCrowd(level: CrowdLevel): Crowd {
   const standers: Figure[] = [];
   for (const seat of SEATS) {
     if (random() > ratio) continue;
+    // バルコニー席は立ち見なので、札止め以外では埋めない。
+    if (seat.block.kind === 'balcony' && !standing) continue;
     const figure = makeFigure(random, seat.x, seat.y, seat.z, OUTWARD_YAW[seat.block.side]);
     figure.seatId = seat.id;
     (seat.block.kind === 'balcony' ? standers : seated).push(figure);
