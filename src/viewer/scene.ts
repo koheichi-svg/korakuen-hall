@@ -32,6 +32,8 @@ const COLOR = {
   chrome: 0xb9bec4,
   grip: 0x1b1b1e,
   rail: 0xd5d0c2,
+  /** 南側スタンドの前を仕切るグレーの壁。 */
+  frontWall: 0x8f9095,
   balconyWall: 0xe6e0d2,
   // リング。白いキャンバス、黒いポストとロープ、コーナーは赤/青/白。
   mat: 0xefeee9,
@@ -218,17 +220,12 @@ function createShell(): THREE.Group {
   group.add(createCurtains());
   group.add(createBalconies());
   group.add(createScreen());
-  // 北の壁を照らすグリーンのウォッシュ（写真でスクリーンの両脇に見える帯）。
-  const wash = new THREE.MeshBasicMaterial({ color: 0x2fa864 });
-  for (let i = 0; i < 6; i++) {
-    const band = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 2.2), wash);
-    const offset = 3.6 + (i % 3) * 1.4;
-    band.position.set(i < 3 ? -offset : offset, 5.9, HALL.minZ + 0.07);
-    group.add(band);
-  }
   group.add(createCeilingRig());
   return group;
 }
+
+/** 東西の壁を覆うカーテンの上端。出入口の高さもこれに揃える。 */
+const CURTAIN_TOP = BALCONY.floorY - 0.2;
 
 /**
  * 1階の内壁。実物は客席の後ろにほとんど余白がなく、すぐ壁が立っている。
@@ -247,7 +244,7 @@ const INNER_WALL = {
    * 東西の壁にある出入口。ここだけ壁がなく、外の通路へ抜けている。
    * 南寄りが公式座席表の1番出口・4番出口、北寄りが北側スタンドとの間の通路。
    */
-  exitHeight: 3.6,
+  exitHeight: CURTAIN_TOP,
   exits: [
     { minZ: -8.4, maxZ: -6.6 },
     { minZ: 5.6, maxZ: 7.4 },
@@ -317,13 +314,14 @@ function createInnerWalls(): THREE.Group {
       corridor.position.set(sign * (innerX + thickness / 2 + 0.4), exitHeight / 2, centerZ);
       group.add(corridor);
 
-      const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, width + 0.24), frame);
-      lintel.position.set(sign * innerX, exitHeight + 0.06, centerZ);
+      // 枠は開口の内側に納める（上はバルコニーの床とぶつかるほど高い）。
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, width), frame);
+      lintel.position.set(sign * innerX, exitHeight - 0.06, centerZ);
       group.add(lintel);
 
-      for (const z of [exit.minZ - 0.06, exit.maxZ + 0.06]) {
-        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.36, exitHeight + 0.12, 0.12), frame);
-        jamb.position.set(sign * innerX, (exitHeight + 0.12) / 2, z);
+      for (const z of [exit.minZ + 0.06, exit.maxZ - 0.06]) {
+        const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.36, exitHeight, 0.12), frame);
+        jamb.position.set(sign * innerX, exitHeight / 2, z);
         group.add(jamb);
       }
     }
@@ -362,7 +360,7 @@ function createCurtains(): THREE.Group {
   }
   spans.push([cursor, southZ - 0.2]);
 
-  const top = BALCONY.floorY - 0.2;
+  const top = CURTAIN_TOP;
   const height = top - CURTAIN.bottom;
   const material = standard(CURTAIN.color, 0.95);
   const dummy = new THREE.Object3D();
@@ -514,7 +512,8 @@ function createScreen(): THREE.Group {
   const y = 7.2;
   const bezel = standard(0x141416, 0.7);
 
-  const box = new THREE.Mesh(new THREE.BoxGeometry(width + 0.34, height + 0.34, 0.4), bezel);
+  // 実物は薄いLEDパネル。奥行きを持たせると北側の客席から箱に見えてしまう。
+  const box = new THREE.Mesh(new THREE.BoxGeometry(width + 0.16, height + 0.16, 0.06), bezel);
   box.position.set(0, y, z);
   group.add(box);
 
@@ -523,12 +522,12 @@ function createScreen(): THREE.Group {
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({ map: createScreenTexture() }),
   );
-  face.position.set(0, y, z + 0.21);
+  face.position.set(0, y, z + 0.04);
   group.add(face);
 
   // 天井から吊るワイヤーと、下向きの補強。
   for (const x of [-width / 2 + 0.4, width / 2 - 0.4]) {
-    const top = y + height / 2 + 0.17;
+    const top = y + height / 2 + 0.08;
     const wire = new THREE.Mesh(
       new THREE.CylinderGeometry(0.035, 0.035, HALL.ceilingY - top, 6),
       standard(0x17171a, 0.6),
@@ -698,6 +697,21 @@ function createRing(): THREE.Group {
   canvas.position.y = matY + 0.05;
   group.add(canvas);
 
+  // マット中央のスポンサーロゴ。実物と同じく、キャンバスに薄く刷られている程度。
+  const logo = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 1.1),
+    new THREE.MeshStandardMaterial({
+      map: createMatLogoTexture(),
+      transparent: true,
+      opacity: 0.3,
+      roughness: 0.8,
+      depthWrite: false,
+    }),
+  );
+  logo.rotation.x = -Math.PI / 2;
+  logo.position.set(0, matY + 0.104, 0);
+  group.add(logo);
+
   // マット面の四辺に入る細いライン（キャンバスの縁取り）。
   for (const sign of [1, -1]) {
     for (const along of [true, false]) {
@@ -765,6 +779,26 @@ function createRing(): THREE.Group {
   });
 
   return group;
+}
+
+/**
+ * マット中央のスポンサーロゴ。にじんだインクのように輪郭を弱くして、
+ * 「はっきりとは読めないが何か刷ってある」程度に見せる。
+ */
+function createMatLogoTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 168;
+  const ctx = canvas.getContext('2d')!;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 116px sans-serif';
+  ctx.fillStyle = 'rgba(28, 30, 38, 0.55)';
+  ctx.filter = 'blur(2px)';
+  ctx.fillText('ABEMA', 256, 88);
+
+  return new THREE.CanvasTexture(canvas);
 }
 
 /** エプロンを一周する幕。暗い地に、写真のような緑と黄の波形。 */
@@ -1332,11 +1366,11 @@ function createEntrances(rows: SeatRow[], pitch: number): THREE.Group {
       group.add(bar);
     }
 
-    // 通路の両脇、座席との段差に立つ手すり。
+    // 通路の両脇、座席との段差に立つグレーの壁。
     for (let index = first; index <= last; index++) {
       const tier = tiers[index];
       for (const x of [min, max]) {
-        group.add(createSideRail(x, tier.front, tier.back, tier.row.y));
+        group.add(createSideWall(x, tier.front, tier.back, floorY, tier.row.y));
       }
     }
   }
@@ -1344,23 +1378,26 @@ function createEntrances(rows: SeatRow[], pitch: number): THREE.Group {
   return group;
 }
 
-/** 出入り口の脇に立つ手すり（1段ぶん）。 */
-function createSideRail(x: number, zFrom: number, zTo: number, y: number): THREE.Group {
-  const rail = new THREE.Group();
-  const material = metal(COLOR.rail);
-  const length = zTo - zFrom;
-
-  const bar = new THREE.Mesh(tube(0.035, length), material);
-  bar.rotation.x = Math.PI / 2;
-  bar.position.set(x, y + 0.85, (zFrom + zTo) / 2);
-  rail.add(bar);
-
-  for (const z of [zFrom + 0.1, zTo - 0.1]) {
-    const post = new THREE.Mesh(tube(0.03, 0.85), material);
-    post.position.set(x, y + 0.425, z);
-    rail.add(post);
-  }
-  return rail;
+/**
+ * 出入り口の脇、通路と座席の段差に立つグレーの壁（1段ぶん）。
+ * 通路の床から立ち上げて、その段の座席面より 0.85m 高いところで止める。
+ */
+function createSideWall(
+  x: number,
+  zFrom: number,
+  zTo: number,
+  floorY: number,
+  y: number,
+): THREE.Group {
+  const group = new THREE.Group();
+  const height = y + 0.85 - floorY;
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(0.14, height, zTo - zFrom),
+    standard(COLOR.frontWall, 0.85),
+  );
+  wall.position.set(x, floorY + height / 2, (zFrom + zTo) / 2);
+  group.add(wall);
+  return group;
 }
 
 /** その列の中で座席が大きく抜けている区間（＝出入り口）。 */
@@ -1376,36 +1413,33 @@ function entranceGaps(row: SeatRow): [number, number][] {
 }
 
 /**
- * スタンド最前列の手前に立つ手すり。
- * 写真だと南側スタンドの前は銀色のパイプ、木のひな壇はクリーム色の塗装パイプ。
+ * スタンド最前列の手前、通路との境に立つグレーの壁。
+ * パイプの手すりではなく、腰高の塗り壁で仕切られている。
  */
 function createFrontRail(side: Side, front: SeatRow, pitch: number): THREE.Group {
-  const rail = new THREE.Group();
+  const group = new THREE.Group();
   const horizontal = side === 'N' || side === 'S';
   const outward = side === 'S' || side === 'E' ? 1 : -1;
   const extent = lateralExtent(front);
   const width = extent.max - extent.min + 0.5;
-  const material = metal(COLOR.rail);
+  const thickness = 0.16;
   const edge = front.depth * outward - (outward * pitch) / 2 - 0.2;
-
-  const place = (mesh: THREE.Mesh, along: number, y: number) => {
-    mesh.position.set(horizontal ? along : edge, front.y + y, horizontal ? edge : along);
-    rail.add(mesh);
-  };
 
   // 最前列に座った人の視線（床から約1.15m）より低く抑える。
   const height = 0.75;
-  for (const y of [height * 0.55, height]) {
-    const tubeMesh = new THREE.Mesh(tube(0.04, width), material);
-    tubeMesh.rotation.z = Math.PI / 2;
-    if (!horizontal) tubeMesh.rotation.y = Math.PI / 2;
-    place(tubeMesh, (extent.min + extent.max) / 2, y);
-  }
-  for (let along = extent.min; along <= extent.max; along += 2.6) {
-    place(new THREE.Mesh(tube(0.03, height), material), along, height / 2);
-  }
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      horizontal ? width : thickness,
+      height,
+      horizontal ? thickness : width,
+    ),
+    standard(COLOR.frontWall, 0.85),
+  );
+  const along = (extent.min + extent.max) / 2;
+  wall.position.set(horizontal ? along : edge, front.y + height / 2, horizontal ? edge : along);
+  group.add(wall);
 
-  return rail;
+  return group;
 }
 
 /** BoxGeometry の面の並び [+x, -x, +y, -y, +z, -z] のうち、リング側を向く面。 */
@@ -1608,18 +1642,31 @@ function instancedParts(seats: Seat[], parts: ChairPart[]): THREE.Group {
 }
 
 function createLights(): THREE.Object3D[] {
-  // 写真の場内は、白い天井と客席がそこそこ明るく、リングだけが一段明るい。
-  // 環境光を上げすぎると陰影が消えて平坦になるので、リングとの差は残す。
-  const ambient = new THREE.AmbientLight(0xfff2df, 0.44);
-  const sky = new THREE.HemisphereLight(0xfff0dc, 0x3a2f24, 0.38);
+  // 試合中の場内。リングだけにスポットが当たり、客席は落としてある。
+  // 完全な暗転にはせず、座席の形が分かるぶんだけ環境光を残す。
+  const ambient = new THREE.AmbientLight(0xdfe4f0, 0.1);
+  const sky = new THREE.HemisphereLight(0xcdd6ea, 0x14120e, 0.12);
 
-  // リングを照らすトラスのスポット。
-  // 強すぎるとマットの緑が白飛びするので控えめに。
-  const key = new THREE.SpotLight(0xfff6e6, 240, 30, Math.PI / 4, 0.6, 1.2);
-  key.position.set(0, HALL.ceilingY - 2.4, 0);
-  key.target.position.set(0, RING.matY, 0);
+  // リングを照らすトラスのスポット。真上から1灯と、四隅から浅い角度で4灯。
+  const lights: THREE.Object3D[] = [ambient, sky];
+  const spot = (x: number, y: number, z: number, intensity: number, angle: number) => {
+    const light = new THREE.SpotLight(0xfff6e6, intensity, 40, angle, 0.45, 1.1);
+    light.position.set(x, y, z);
+    light.target.position.set(0, RING.matY, 0);
+    lights.push(light, light.target);
+  };
 
-  const house: THREE.Object3D[] = [];
+  spot(0, HALL.ceilingY - 2.4, 0, 420, Math.PI / 7);
+  for (const [x, z] of [
+    [-4.6, -4.6],
+    [4.6, -4.6],
+    [-4.6, 4.6],
+    [4.6, 4.6],
+  ]) {
+    spot(x, HALL.ceilingY - 2.2, z, 300, Math.PI / 8);
+  }
+
+  // 客席側のハウスライト。落としてあるが、真っ黒にはしない程度。
   for (const [x, z] of [
     [0, -12],
     [0, 8],
@@ -1627,10 +1674,10 @@ function createLights(): THREE.Object3D[] {
     [-10, 0],
     [10, 0],
   ]) {
-    const lamp = new THREE.PointLight(0xffe6c4, 190, 30, 1.5);
+    const lamp = new THREE.PointLight(0xffe6c4, 26, 26, 1.6);
     lamp.position.set(x, HALL.ceilingY - 1.0, z);
-    house.push(lamp);
+    lights.push(lamp);
   }
 
-  return [ambient, sky, key, key.target, ...house];
+  return lights;
 }
