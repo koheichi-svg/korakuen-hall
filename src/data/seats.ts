@@ -1,5 +1,5 @@
 import { BALCONY_ROW_LAYOUT } from './balcony-layout';
-import { RAKE } from './hall';
+import { RAKE, RINGSIDE } from './hall';
 import { SEAT_ROW_LAYOUT } from './seat-layout.generated';
 
 export type Side = 'N' | 'S' | 'E' | 'W';
@@ -8,8 +8,8 @@ export type Side = 'N' | 'S' | 'E' | 'W';
  * flat = 平場（高さ0、リングサイド）、stand = ひな壇・スタンド、balcony = 2階バルコニー。
  */
 export type BlockKind = 'flat' | 'stand' | 'balcony';
-/** そのブロックに置いてある椅子。3Dの見た目はこれで決まる。 */
-export type Furniture = 'folding' | 'fixed' | 'bench';
+/** そのブロックに置いてある椅子。3Dの見た目はこれで決まる。none は椅子を描かない。 */
+export type Furniture = 'folding' | 'fixed' | 'bench' | 'none';
 
 export interface BlockSpec {
   /** 座席IDの接頭辞。 */
@@ -90,14 +90,15 @@ const BLOCK_SPECS: BlockSpec[] = [
     'ステージ席西',
     '西ステージ',
   ]),
-  block('BE', 'BALCONY_E', 'バルコニー席(東)', 'E', 'balcony', 'folding', [
+  // バルコニーは決まった椅子が並んでいる席ではないので、3Dでは椅子を描かない。
+  block('BE', 'BALCONY_E', 'バルコニー席(東)', 'E', 'balcony', 'none', [
     'BE',
     'バルコニー東',
     'バルコニー席東',
     '東バルコニー',
     '2階東',
   ]),
-  block('BW', 'BALCONY_W', 'バルコニー席(西)', 'W', 'balcony', 'folding', [
+  block('BW', 'BALCONY_W', 'バルコニー席(西)', 'W', 'balcony', 'none', [
     'BW',
     'バルコニー西',
     'バルコニー席西',
@@ -156,6 +157,20 @@ function depthOf(side: Side, x: number, z: number): number {
   }
 }
 
+/** ブロックの奥行き方向（リングから離れる向き）に距離ぶん動かす。 */
+function pushOutward(side: Side, x: number, z: number, distance: number): { x: number; z: number } {
+  switch (side) {
+    case 'N':
+      return { x, z: round(z - distance) };
+    case 'S':
+      return { x, z: round(z + distance) };
+    case 'E':
+      return { x: round(x + distance), z };
+    case 'W':
+      return { x: round(x - distance), z };
+  }
+}
+
 const RAKE_BY_SIDE = { N: RAKE.north, S: RAKE.south, E: RAKE.east, W: RAKE.west } as const;
 
 function buildRows(): SeatRow[] {
@@ -164,10 +179,13 @@ function buildRows(): SeatRow[] {
   const rows = [...SEAT_ROW_LAYOUT, ...BALCONY_ROW_LAYOUT].map((layout) => {
     const spec = specsBySource.get(layout.block);
     if (!spec) throw new Error(`未知のブロック: ${layout.block}`);
+    // リングサイドはリングとの間の黒マットと柵のぶんだけ後ろへ下げる。
+    const setback = spec.kind === 'flat' ? RINGSIDE.setback : 0;
     const depth =
       layout.seats.reduce((sum, [, x, z]) => sum + depthOf(spec.side, x, z), 0) /
-      layout.seats.length;
-    return { block: spec, row: layout.row, depth, y: 0, seats: [] as Seat[], layout };
+        layout.seats.length +
+      setback;
+    return { block: spec, row: layout.row, depth, y: 0, seats: [] as Seat[], layout, setback };
   });
 
   // 斜面の起点は、その側のスタンドの最前列。ステージ席は北側スタンドの斜面に乗る。
@@ -191,13 +209,12 @@ function buildRows(): SeatRow[] {
     }
 
     row.seats = row.layout.seats.map(([number, x, z]) => ({
-      id: `${row.block.code}-${row.row}-${number}`,
+      id: seatId(row.block.code, row.row, number),
       block: row.block,
       row: row.row,
       number,
-      x,
+      ...pushOutward(row.block.side, x, z, row.setback),
       y: row.y,
-      z,
     }));
   }
 
@@ -222,8 +239,14 @@ export function getSeat(id: string): Seat | undefined {
   return SEATS_BY_ID.get(id);
 }
 
+/** 列を持たないブロック（バルコニー）は列を挟まない。 */
+function seatId(code: string, row: string, number: number): string {
+  return row === '' ? `${code}-${number}` : `${code}-${row}-${number}`;
+}
+
 export function seatLabel(seat: Seat): string {
-  return `${seat.block.label} ${seat.row}列 ${seat.number}番`;
+  const row = seat.row === '' ? '' : `${seat.row}列 `;
+  return `${seat.block.label} ${row}${seat.number}番`;
 }
 
 /** ブロックに属する列を、リングに近い順に返す。 */
@@ -257,7 +280,7 @@ export function parseSeatId(input: string): Seat | undefined {
         if (matches.length === 1) return matches[0];
         continue;
       }
-      const seat = getSeat(`${spec.code}-${row}-${number}`);
+      const seat = getSeat(seatId(spec.code, row, number));
       if (seat) return seat;
     }
   }

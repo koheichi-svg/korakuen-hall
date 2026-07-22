@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { BALCONY, HALL, RING } from '../data/hall';
+import { BALCONY, HALL, RING, RINGSIDE } from '../data/hall';
 import { BLOCKS, SEATS, rowsOfBlock, type Seat, type SeatRow, type Side } from '../data/seats';
 
 /**
@@ -33,11 +33,15 @@ const COLOR = {
   grip: 0x1b1b1e,
   rail: 0xd5d0c2,
   balconyWall: 0xe6e0d2,
-  // リングはプロレスリング・ノア仕様。
-  mat: 0x15693c,
-  noahGreen: 0x149b57,
-  rope: 0xc3c7cc,
-  skirt: 0x121319,
+  // リング。白いキャンバス、黒いポストとロープ、コーナーは赤/青/白。
+  mat: 0xefeee9,
+  post: 0x191a1d,
+  rope: 0x131417,
+  cornerRed: 0xc2182b,
+  cornerBlue: 0x1c4fa1,
+  cornerWhite: 0xf0efe9,
+  /** リングの周りに敷かれた黒いマット。 */
+  ringsideMat: 0x141519,
   truss: 0x232529,
   lamp: 0xfff4d8,
 } as const;
@@ -48,6 +52,7 @@ export function createHallScene(): THREE.Scene {
 
   scene.add(createShell());
   scene.add(createRing());
+  scene.add(createRingsideFloor());
   scene.add(createPeople());
   scene.add(createStands());
   scene.add(createSeatFurniture());
@@ -155,8 +160,8 @@ function createShell(): THREE.Group {
     [
       ['N', '北', 'NORTH', width, centerX, HALL.minZ, 0, [0, 5.1, HALL.minZ + 0.06]],
       ['S', '南', 'SOUTH', width, centerX, HALL.maxZ, Math.PI, [0, 8.3, HALL.maxZ - 0.06]],
-      ['W', '西', 'WEST', depth, HALL.minX, centerZ, Math.PI / 2, [-signFace, 3.3, -1.5]],
-      ['E', '東', 'EAST', depth, HALL.maxX, centerZ, -Math.PI / 2, [signFace, 3.3, -1.5]],
+      ['W', '西', 'WEST', depth, HALL.minX, centerZ, Math.PI / 2, [-signFace, 3.3, 0.8]],
+      ['E', '東', 'EAST', depth, HALL.maxX, centerZ, -Math.PI / 2, [signFace, 3.3, 0.8]],
     ];
   for (const [side, kanji, roman, size, x, z, rotation, signPosition] of walls) {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(size, HALL.ceilingY), wall);
@@ -514,80 +519,92 @@ function createCeilingRig(): THREE.Group {
   return group;
 }
 
-/** マット・エプロン・ロープ・コーナーポスト・リング階段。 */
+/**
+ * マット・エプロン・ロープ・コーナーポスト・リング階段。
+ * 写真に合わせて、白いキャンバス、黒い角ポストと黒いロープ3本、
+ * コーナーは赤（北西）・青（南東）・白（残り2か所）のパッド。
+ */
 function createRing(): THREE.Group {
   const group = new THREE.Group();
   const { matHalf, apronHalf, matY, postHeight, ropeHeights } = RING;
 
+  // エプロンを一周する幕。暗い地に緑と黄のグラフィックが入る。
   const skirt = new THREE.Mesh(
     new THREE.BoxGeometry(apronHalf * 2, matY, apronHalf * 2),
-    standard(COLOR.skirt, 0.95),
+    new THREE.MeshStandardMaterial({ map: createSkirtTexture(), roughness: 0.9 }),
   );
   skirt.position.y = matY / 2;
   group.add(skirt);
 
-  // スカート上端のグリーンのライン。
-  const trim = new THREE.Mesh(
-    new THREE.BoxGeometry(apronHalf * 2 + 0.02, 0.1, apronHalf * 2 + 0.02),
-    standard(COLOR.noahGreen, 0.8),
-  );
-  trim.position.y = matY - 0.12;
-  group.add(trim);
-
-  // キャンバスはエプロンまで一続き。ノアのリングなのでグリーン。
+  // キャンバスはエプロンまで一続きで白。
   const canvas = new THREE.Mesh(
     new THREE.BoxGeometry(apronHalf * 2, 0.1, apronHalf * 2),
-    standard(COLOR.mat, 0.8),
+    standard(COLOR.mat, 0.75),
   );
   canvas.position.y = matY + 0.05;
   group.add(canvas);
 
-  const corners: [number, number][] = [
-    [matHalf, matHalf],
-    [-matHalf, -matHalf],
-    [matHalf, -matHalf],
-    [-matHalf, matHalf],
+  // マット面の四辺に入る細いライン（キャンバスの縁取り）。
+  for (const sign of [1, -1]) {
+    for (const along of [true, false]) {
+      const line = new THREE.Mesh(
+        new THREE.BoxGeometry(along ? matHalf * 2 : 0.05, 0.012, along ? 0.05 : matHalf * 2),
+        standard(0xb9bec6, 0.8),
+      );
+      line.position.set(along ? 0 : sign * matHalf, matY + 0.106, along ? sign * matHalf : 0);
+      group.add(line);
+    }
+  }
+
+  // コーナーの色: 北西が赤、南東が青、残りは白。
+  const corners: [number, number, number][] = [
+    [-matHalf, -matHalf, COLOR.cornerRed],
+    [matHalf, matHalf, COLOR.cornerBlue],
+    [matHalf, -matHalf, COLOR.cornerWhite],
+    [-matHalf, matHalf, COLOR.cornerWhite],
   ];
 
-  for (const [x, z] of corners) {
+  for (const [x, z, cornerColor] of corners) {
+    // ポストは黒い角柱。上端にキャップ。
     const post = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.075, postHeight, 12),
-      standard(0xd8d8d8, 0.5),
+      new THREE.BoxGeometry(0.14, postHeight, 0.14),
+      standard(COLOR.post, 0.55),
     );
     post.position.set(x, matY + postHeight / 2, z);
     group.add(post);
 
-    // コーナーパッドはノアのグリーン。上下に白帯（スポンサーロゴが入る面）。
-    const pad = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.17, 0.17, 1.25, 12),
-      standard(COLOR.noahGreen, 0.7),
-    );
-    pad.position.set(x, matY + 1.05, z);
-    group.add(pad);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.18), standard(0x2c2c30, 0.5));
+    cap.position.set(x, matY + postHeight + 0.02, z);
+    group.add(cap);
 
-    for (const offset of [-0.42, 0.42]) {
-      const band = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.175, 0.175, 0.2, 12),
-        standard(0xf0f0ee, 0.7),
+    // ロープとポストをつなぐターンバックルのカバー。ここがコーナーの色。
+    for (const height of ropeHeights) {
+      const pad = new THREE.Mesh(
+        new THREE.BoxGeometry(0.3, 0.26, 0.3),
+        standard(cornerColor, 0.7),
       );
-      band.position.set(x, matY + 1.05 + offset, z);
-      group.add(band);
+      pad.position.set(x, matY + height, z);
+      group.add(pad);
     }
   }
 
-  // ロープはシルバー（レフェリーの写真に写っているノアのリングに合わせた）。
+  // ロープは3本とも黒。
+  const ropeMaterial = standard(COLOR.rope, 0.55);
   ropeHeights.forEach((height) => {
-    const material = new THREE.MeshStandardMaterial({
-      color: COLOR.rope,
-      roughness: 0.35,
-      metalness: 0.5,
-    });
     for (const sign of [1, -1]) {
-      const alongX = new THREE.Mesh(new THREE.BoxGeometry(matHalf * 2, 0.06, 0.06), material);
+      const alongX = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, matHalf * 2, 8),
+        ropeMaterial,
+      );
+      alongX.rotation.z = Math.PI / 2;
       alongX.position.set(0, matY + height, sign * matHalf);
       group.add(alongX);
 
-      const alongZ = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, matHalf * 2), material);
+      const alongZ = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.032, 0.032, matHalf * 2, 8),
+        ropeMaterial,
+      );
+      alongZ.rotation.x = Math.PI / 2;
       alongZ.position.set(sign * matHalf, matY + height, 0);
       group.add(alongZ);
     }
@@ -609,6 +626,102 @@ function createRing(): THREE.Group {
     }
     group.add(steps);
   }
+
+  return group;
+}
+
+/** エプロンを一周する幕。暗い地に、写真のような緑と黄の波形。 */
+function createSkirtTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#16171c';
+  ctx.fillRect(0, 0, 256, 64);
+
+  for (const [color, offset, amplitude] of [
+    ['#1f7a3d', 0, 12],
+    ['#8dbf2f', 10, 9],
+    ['#e8c33a', 20, 6],
+  ] as [string, number, number][]) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, 64);
+    for (let x = 0; x <= 256; x += 8) {
+      ctx.lineTo(x, 40 + offset - Math.sin(x / 26) * amplitude);
+    }
+    ctx.lineTo(256, 64);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.repeat.set(2, 1);
+  return texture;
+}
+
+/**
+ * リングと最前列の間。エプロンの周りに敷かれた黒いマットと、
+ * その外周に立つシルバーのバリケード（低い柵）。
+ */
+function createRingsideFloor(): THREE.Group {
+  const group = new THREE.Group();
+  const { matHalf, barrier, barrierHeight } = RINGSIDE;
+
+  const mat = new THREE.Mesh(
+    new THREE.BoxGeometry(matHalf * 2, 0.03, matHalf * 2),
+    standard(COLOR.ringsideMat, 0.95),
+  );
+  mat.position.y = 0.015;
+  group.add(mat);
+
+  // 柵は四辺ごとに1本ずつ。角は出入りのために空けてある。
+  const material = metal(COLOR.chrome, 0.3);
+  const length = barrier * 2 - 1.6;
+  const bars: THREE.Matrix4[] = [];
+  const dummy = new THREE.Object3D();
+
+  for (const side of [0, 1, 2, 3]) {
+    const run = new THREE.Group();
+    // 上下の横パイプ。
+    for (const y of [barrierHeight, barrierHeight * 0.45]) {
+      const pipe = new THREE.Mesh(tube(0.035, length), material);
+      pipe.rotation.z = Math.PI / 2;
+      pipe.position.set(0, y, 0);
+      run.add(pipe);
+    }
+    // 支柱。
+    for (let t = -length / 2; t <= length / 2 + 0.01; t += length / 4) {
+      const post = new THREE.Mesh(tube(0.04, barrierHeight), material);
+      post.position.set(t, barrierHeight / 2, 0);
+      run.add(post);
+    }
+    run.rotation.y = (side * Math.PI) / 2;
+    run.position.set(
+      side === 0 ? 0 : side === 1 ? -barrier : side === 2 ? 0 : barrier,
+      0,
+      side === 0 ? -barrier : side === 1 ? 0 : side === 2 ? barrier : 0,
+    );
+    group.add(run);
+
+    // 縦の桟は数が多いのでまとめて描く。
+    for (let t = -length / 2 + 0.2; t < length / 2; t += 0.24) {
+      dummy.position.set(t, barrierHeight * 0.7, 0);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      const local = dummy.matrix.clone();
+      dummy.position.copy(run.position);
+      dummy.rotation.copy(run.rotation);
+      dummy.updateMatrix();
+      bars.push(dummy.matrix.clone().multiply(local));
+    }
+  }
+
+  const infill = new THREE.InstancedMesh(tube(0.014, barrierHeight * 0.5), material, bars.length);
+  bars.forEach((matrix, index) => infill.setMatrixAt(index, matrix));
+  infill.instanceMatrix.needsUpdate = true;
+  group.add(infill);
 
   return group;
 }
@@ -810,51 +923,58 @@ function createStands(): THREE.Group {
     // ステージ席は同じ木の段だが、載っているのは折りたたみ椅子。
     const wooden = block.furniture !== 'fixed';
 
-    for (const row of rows) {
+    const horizontal = block.side === 'N' || block.side === 'S';
+    const outward = block.side === 'S' || block.side === 'E' ? 1 : -1;
+    const top = standard(wooden ? COLOR.wood : COLOR.structure, 0.95);
+    const riser = standard(wooden ? COLOR.woodEdge : 0x4c4338, 0.95);
+    const faces = [top, top, top, top, top, top];
+    faces[frontFaceIndex(block.side)] = riser;
+
+    for (const tier of tiersOfBlock(rows, pitch)) {
+      const { row, front, back } = tier;
       const extent = lateralExtent(row);
-      const horizontal = block.side === 'N' || block.side === 'S';
-      const outward = block.side === 'S' || block.side === 'E' ? 1 : -1;
-      const width = extent.max - extent.min + 0.5;
       const center = (extent.min + extent.max) / 2;
-      const depthCenter = row.depth * outward;
+      const depth = back - front;
+      const depthCenter = ((front + back) / 2) * outward;
+      const height = Math.max(row.y, 0.12);
 
       // 床から段の高さまでの塊。手前の段と重なるが、内側からは見えない。
       // リング側を向く垂直面（蹴上げ）だけ暗くして、段々に見えるようにする。
-      const top = standard(wooden ? COLOR.wood : COLOR.structure, 0.95);
-      const riser = standard(wooden ? COLOR.woodEdge : 0x4c4338, 0.95);
-      const faces = [top, top, top, top, top, top];
-      faces[frontFaceIndex(block.side)] = riser;
+      // 出入り口のところだけは段を左右に割って、間を吹き抜けにする。
+      for (const [min, max] of tier.spans) {
+        const step = new THREE.Mesh(
+          new THREE.BoxGeometry(horizontal ? max - min : depth, height, horizontal ? depth : max - min),
+          faces,
+        );
+        step.position.set(
+          horizontal ? (min + max) / 2 : depthCenter,
+          height / 2,
+          horizontal ? depthCenter : (min + max) / 2,
+        );
+        group.add(step);
 
-      const tier = new THREE.Mesh(
-        new THREE.BoxGeometry(
-          horizontal ? width : pitch,
-          Math.max(row.y, 0.12),
-          horizontal ? pitch : width,
-        ),
-        faces,
-      );
-      tier.position.set(
-        horizontal ? center : depthCenter,
-        Math.max(row.y, 0.12) / 2,
-        horizontal ? depthCenter : center,
-      );
-      group.add(tier);
-
-      // 段鼻の見切り。木のひな壇は写真でも黒い縁が目立つ。
-      const nosing = new THREE.Mesh(
-        new THREE.BoxGeometry(horizontal ? width : 0.08, 0.11, horizontal ? 0.08 : width),
-        standard(COLOR.woodEdge, 0.8),
-      );
-      const frontEdge = depthCenter - (outward * pitch) / 2;
-      nosing.position.set(
-        horizontal ? center : frontEdge,
-        row.y + 0.03,
-        horizontal ? frontEdge : center,
-      );
-      group.add(nosing);
+        // 段鼻の見切り。木のひな壇は写真でも黒い縁が目立つ。
+        const nosing = new THREE.Mesh(
+          new THREE.BoxGeometry(
+            horizontal ? max - min : 0.08,
+            0.11,
+            horizontal ? 0.08 : max - min,
+          ),
+          standard(COLOR.woodEdge, 0.8),
+        );
+        const frontEdge = front * outward;
+        nosing.position.set(
+          horizontal ? (min + max) / 2 : frontEdge,
+          row.y + 0.03,
+          horizontal ? frontEdge : (min + max) / 2,
+        );
+        group.add(nosing);
+      }
 
       if (block.furniture === 'bench') {
         // 木のベンチ（背もたれなし）。ここに座る。
+        const width = extent.max - extent.min + 0.5;
+        const seatCenter = row.depth * outward + outward * 0.1;
         const bench = new THREE.Mesh(
           new THREE.BoxGeometry(
             horizontal ? width - 0.3 : 0.42,
@@ -864,18 +984,186 @@ function createStands(): THREE.Group {
           standard(COLOR.wood, 0.7),
         );
         bench.position.set(
-          horizontal ? center : depthCenter + outward * 0.1,
+          horizontal ? center : seatCenter,
           row.y + 0.42,
-          horizontal ? depthCenter + outward * 0.1 : center,
+          horizontal ? seatCenter : center,
         );
         group.add(bench);
       }
     }
 
-    group.add(createFrontRail(block.side, rows[0], pitch));
+    // リングサイドとの間の柵は南側スタンドの前だけ（他のブロックは実物にない）。
+    if (block.code === 'S') {
+      group.add(createFrontRail(block.side, rows[0], pitch));
+      group.add(createEntrances(rows, pitch));
+    }
   }
 
   return group;
+}
+
+/** 段1つぶんの奥行きと、出入り口で割ったあとの左右方向の実体。 */
+interface Tier {
+  row: SeatRow;
+  /** リング側の縁・奥の縁（ブロックの奥行き方向、符号なし）。 */
+  front: number;
+  back: number;
+  /** 段が実際にある区間。出入り口のところで切れる。 */
+  spans: [number, number][];
+}
+
+/** 出入り口とみなす座席の空きの幅。通路（1m弱）と区別する。 */
+const ENTRANCE_GAP = 2.0;
+
+/**
+ * 段の奥行きは前後の列との中間まで取る。こうしないと列の間隔が広いところ
+ * （通路）に床のない隙間ができる。
+ */
+function tiersOfBlock(rows: SeatRow[], pitch: number): Tier[] {
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
+    const next = rows[index + 1];
+    const front = previous ? (previous.depth + row.depth) / 2 : row.depth - pitch / 2;
+    const back = next ? (row.depth + next.depth) / 2 : row.depth + pitch / 2;
+
+    const extent = lateralExtent(row);
+    const spans: [number, number][] = [];
+    let cursor = extent.min - 0.25;
+    for (const gap of entranceGaps(row)) {
+      spans.push([cursor, gap[0]]);
+      cursor = gap[1];
+    }
+    spans.push([cursor, extent.max + 0.25]);
+    return { row, front, back, spans };
+  });
+}
+
+/**
+ * 南側スタンドの中ほど（I〜L列）にある2か所の出入り口。
+ *
+ * 座席が抜けている区間の床を1段手前の列の高さまで下げた通路で、突き当たり
+ * （1段上の列の蹴上げ）に扉と誘導灯が付く。北端は手前の列の段と同じ高さで
+ * つながっていて、そのまま通路に出られる。南側スタンド専用なので z = 奥行き。
+ */
+function createEntrances(rows: SeatRow[], pitch: number): THREE.Group {
+  const group = new THREE.Group();
+  const tiers = tiersOfBlock(rows, pitch);
+
+  // 同じ位置の空きが続いている列をまとめて、1か所の出入り口にする。
+  const wells = new Map<string, { min: number; max: number; first: number; last: number }>();
+  tiers.forEach((tier, index) => {
+    for (const [min, max] of entranceGaps(tier.row)) {
+      const key = `${min.toFixed(1)}:${max.toFixed(1)}`;
+      const well = wells.get(key);
+      if (well) well.last = index;
+      else wells.set(key, { min, max, first: index, last: index });
+    }
+  });
+
+  for (const { min, max, first, last } of wells.values()) {
+    const front = tiers[first - 1];
+    const back = tiers[last + 1];
+    if (!front || !back) continue;
+
+    const floorY = front.row.y;
+    const zFront = tiers[first].front;
+    const zBack = tiers[last].back;
+    const width = max - min;
+    const center = (min + max) / 2;
+
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(width, floorY, zBack - zFront),
+      standard(COLOR.structure, 0.95),
+    );
+    floor.position.set(center, floorY / 2, (zFront + zBack) / 2);
+    group.add(floor);
+
+    // 突き当たりの扉。枠の中は暗い通路。
+    const doorHeight = Math.min(1.95, back.row.y - floorY - 0.25);
+    const doorWidth = 1.7;
+    const opening = new THREE.Mesh(
+      new THREE.BoxGeometry(doorWidth, doorHeight, 0.06),
+      standard(0x14151a, 0.9),
+    );
+    opening.position.set(center, floorY + doorHeight / 2, zBack - 0.04);
+    group.add(opening);
+
+    const frame = standard(0x4a423a, 0.8);
+    for (const [w, h, dx, dy] of [
+      [doorWidth + 0.24, 0.12, 0, doorHeight + 0.06],
+      [0.12, doorHeight + 0.12, -(doorWidth + 0.12) / 2, doorHeight / 2],
+      [0.12, doorHeight + 0.12, (doorWidth + 0.12) / 2, doorHeight / 2],
+    ]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.1), frame);
+      bar.position.set(center + dx, floorY + dy, zBack - 0.06);
+      group.add(bar);
+    }
+
+    // 扉の上の緑の誘導灯。
+    const exit = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.52, 0.24),
+      new THREE.MeshBasicMaterial({ map: createExitSignTexture() }),
+    );
+    exit.position.set(center, floorY + doorHeight + 0.26, zBack - 0.12);
+    exit.rotation.y = Math.PI;
+    group.add(exit);
+
+    // 通路の両脇、座席との段差に立つ手すり。
+    for (let index = first; index <= last; index++) {
+      const tier = tiers[index];
+      for (const x of [min, max]) {
+        group.add(createSideRail(x, tier.front, tier.back, tier.row.y));
+      }
+    }
+  }
+
+  return group;
+}
+
+/** 出入り口の脇に立つ手すり（1段ぶん）。 */
+function createSideRail(x: number, zFrom: number, zTo: number, y: number): THREE.Group {
+  const rail = new THREE.Group();
+  const material = metal(COLOR.rail);
+  const length = zTo - zFrom;
+
+  const bar = new THREE.Mesh(tube(0.035, length), material);
+  bar.rotation.x = Math.PI / 2;
+  bar.position.set(x, y + 0.85, (zFrom + zTo) / 2);
+  rail.add(bar);
+
+  for (const z of [zFrom + 0.1, zTo - 0.1]) {
+    const post = new THREE.Mesh(tube(0.03, 0.85), material);
+    post.position.set(x, y + 0.425, z);
+    rail.add(post);
+  }
+  return rail;
+}
+
+/** 緑の誘導灯（非常口）。 */
+function createExitSignTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 104;
+  canvas.height = 48;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#0f9d58';
+  ctx.fillRect(0, 0, 104, 48);
+  ctx.fillStyle = '#f2fbf5';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.fillText('非常口', 52, 34);
+  return new THREE.CanvasTexture(canvas);
+}
+
+/** その列の中で座席が大きく抜けている区間（＝出入り口）。 */
+function entranceGaps(row: SeatRow): [number, number][] {
+  const horizontal = row.block.side === 'N' || row.block.side === 'S';
+  const values = row.seats.map((seat) => (horizontal ? seat.x : seat.z)).sort((a, b) => a - b);
+  const gaps: [number, number][] = [];
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] - values[i - 1] < ENTRANCE_GAP) continue;
+    gaps.push([values[i - 1] + 0.35, values[i] - 0.35]);
+  }
+  return gaps;
 }
 
 /**

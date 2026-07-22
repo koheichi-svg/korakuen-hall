@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BALCONY, RING } from './hall';
+import { BALCONY, RING, RINGSIDE } from './hall';
 import { BLOCKS, SEAT_ROWS, SEATS, getSeat, parseSeatId, rowsOfBlock } from './seats';
 
 const block = (code: string) => BLOCKS.find((b) => b.code === code)!;
@@ -21,17 +21,27 @@ describe('座席データ', () => {
     expect(rowsOfBlock(block('S')).find((r) => r.row === 'I')!.seats.length).toBe(34);
   });
 
-  it('バルコニー席は2階の高さにあり、後列が一段上がる', () => {
+  it('バルコニー席は列を持たない1列で、2階の高さにある', () => {
     for (const code of ['BE', 'BW']) {
       const rows = rowsOfBlock(block(code));
-      expect(rows.map((row) => row.row).join('')).toBe('AB');
+      expect(rows.length).toBe(1);
+      expect(rows[0].row).toBe('');
       expect(rows[0].y).toBe(BALCONY.floorY);
-      expect(rows[1].y).toBeGreaterThan(rows[0].y);
-      expect(rows.flatMap((row) => row.seats).length).toBe(40);
+      expect(rows[0].seats.length).toBe(20);
+      // 列がないぶんIDにも列が入らない。
+      expect(rows[0].seats[4].id).toBe(`${code}-5`);
     }
     // 真下にある東側スタンドの最後列より、はっきり上にある。
     const eastBack = rowsOfBlock(block('E')).at(-1)!;
     expect(rowsOfBlock(block('BE'))[0].y).toBeGreaterThan(eastBack.y + 2);
+  });
+
+  it('リングサイド最前列はリング脇の柵より外側にある', () => {
+    for (const code of ['RN', 'RS', 'RE', 'RW']) {
+      const front = rowsOfBlock(block(code))[0];
+      // 黒いマットと柵のぶんだけ座席表の位置から下げてある。
+      expect(front.depth).toBeGreaterThan(RINGSIDE.barrier + 0.3);
+    }
   });
 
   it('IDが一意', () => {
@@ -97,8 +107,9 @@ describe('parseSeatId', () => {
     expect(parseSeatId('ステージ席(東) 15番')?.id).toBe('STE-2-15');
     expect(parseSeatId('リングサイド北 い列 3番')?.id).toBe('RN-い-3');
     expect(parseSeatId('南側リングサイド は列 28番')?.id).toBe('RS-は-28');
-    expect(parseSeatId('バルコニー席東 A列 5番')?.id).toBe('BE-A-5');
-    expect(parseSeatId('西バルコニー B20')?.id).toBe('BW-B-20');
+    expect(parseSeatId('バルコニー席東 5番')?.id).toBe('BE-5');
+    expect(parseSeatId('BE-5')?.id).toBe('BE-5');
+    expect(parseSeatId('西バルコニー 20')?.id).toBe('BW-20');
   });
 
   it('存在しない座席は undefined', () => {

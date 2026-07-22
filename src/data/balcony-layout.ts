@@ -8,17 +8,19 @@ import type { SeatRowLayout } from './seat-layout.generated';
  * ここだけは写真から起こした手書きのデータで、生成ファイルとは分けてある
  * （seat-layout.generated.ts は自動生成なので混ぜない）。
  *
- * 並びは東西の壁沿いに2列。番号の向きは1階の東西スタンドに合わせて、
- * 東は北から、西は南から数える。高さは他のブロックと同じく実行時に計算する。
+ * 並びは東西の壁沿いに1列ずつ（列の区別はないので列名は空）。番号の向きは
+ * 1階の東西スタンドに合わせて、東は北から、西は南から数える。
+ * 高さは他のブロックと同じく実行時に計算する。
+ * 実際に椅子が置かれている席ではないので、3Dでは椅子を描かない（furniture: 'none'）。
  */
 
-/** 前列（A）と後列（B）の壁からの位置。 */
-const ROW_X = { A: 12.3, B: 13.1 } as const;
+/** 手すり壁のすぐ内側。列が1つしかないので列名は持たない。 */
+const ROW_X = 12.3;
 const SEATS_PER_ROW = 20;
 const PITCH = 0.5;
 
-function balconyRow(side: 'E' | 'W', row: 'A' | 'B'): SeatRowLayout {
-  const x = ROW_X[row] * (side === 'E' ? 1 : -1);
+function balconyRow(side: 'E' | 'W'): SeatRowLayout {
+  const x = ROW_X * (side === 'E' ? 1 : -1);
   const span = (SEATS_PER_ROW - 1) * PITCH;
   // 東は北端(-z)が1番、西は南端(+z)が1番。
   const start = side === 'E' ? -span / 2 : span / 2;
@@ -26,7 +28,7 @@ function balconyRow(side: 'E' | 'W', row: 'A' | 'B'): SeatRowLayout {
 
   return {
     block: side === 'E' ? 'BALCONY_E' : 'BALCONY_W',
-    row,
+    row: '',
     seats: Array.from(
       { length: SEATS_PER_ROW },
       (_, index) => [index + 1, x, round(start + index * step)] as [number, number, number],
@@ -36,12 +38,7 @@ function balconyRow(side: 'E' | 'W', row: 'A' | 'B'): SeatRowLayout {
 
 const round = (value: number) => Math.round(value * 1000) / 1000;
 
-export const BALCONY_ROW_LAYOUT: SeatRowLayout[] = [
-  balconyRow('E', 'A'),
-  balconyRow('E', 'B'),
-  balconyRow('W', 'A'),
-  balconyRow('W', 'B'),
-];
+export const BALCONY_ROW_LAYOUT: SeatRowLayout[] = [balconyRow('E'), balconyRow('W')];
 
 // 席が開口からはみ出していないか（座席表PDFの検算と同じ趣旨のチェック）。
 for (const row of BALCONY_ROW_LAYOUT) {
