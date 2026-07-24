@@ -8,8 +8,9 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "build:seats": "node tools/build-seat-layout.mjs",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "preview": "npm run build && wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "deploy": "npm run build && wrangler deploy"
   },
   "repository": {
     "type": "git",
@@ -17,10 +18,12 @@
   },
   "license": "ISC",
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.47.0",
     "@types/three": "^0.185.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.114.0"
   },
   "dependencies": {
     "three": "^0.185.1"
