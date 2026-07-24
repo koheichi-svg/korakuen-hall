@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { BALCONY } from '../data/hall';
 import { BLOCKS, SEATS, rowsOfBlock } from '../data/seats';
+import { crowdHeat } from './match';
 import { OUTWARD_YAW } from './scene';
 
 /**
@@ -45,6 +46,11 @@ export interface Crowd {
    * undefined で全員戻す。
    */
   setEmptySeat(id: string | undefined): void;
+  /**
+   * 試合の経過秒を渡すと、技が決まった瞬間や決着で沸く。
+   * 客の入りが「ガラガラ」以下のときは何もしない。
+   */
+  update(elapsed: number): void;
   dispose(): void;
 }
 
@@ -80,6 +86,18 @@ interface FigurePart {
   position: [number, number, number];
   /** X軸まわりの傾き。腕を前に垂らすのに使う。 */
   tiltX?: number;
+  /** 腕なら左右(-1/1)と、部品の長さの半分（回転の中心を肩に置くため）。 */
+  arm?: { side: number; half: number };
+}
+
+/** 動かせる腕の部品。肩の位置を回転の中心にする。 */
+interface ArmPart {
+  side: number;
+  half: number;
+  /** 垂らしているときの角度（ここを基準に振り上げる）。 */
+  rest: number;
+  /** 肩の位置（figure のローカル座標）。 */
+  pivot: THREE.Vector3;
 }
 
 /** 同じ部品構成でまとめて描ける一群（座り／立ち × 男／女）。 */
@@ -87,13 +105,46 @@ interface Batch {
   figures: Figure[];
   locals: THREE.Matrix4[];
   meshes: THREE.InstancedMesh[];
+  /** 部品ごと。腕でなければ undefined。 */
+  arms: (ArmPart | undefined)[];
+  /** 部品ごとの静止時のワールドY。体を浮かせるときはここからの差分だけ書き換える。 */
+  baseY: Float32Array[];
+  /** 観客ごとの沸き方。 */
+  reactions: Reaction[];
 }
+
+/** 沸き方の種類。 */
+const CLAP = 0;
+const FIST = 1;
+const BANZAI = 2;
+
+/**
+ * 観客ひとりの沸き方。種類・速さ・位相・沸きやすさ・反応の遅れを1人ずつ散らすので、
+ * 同じ瞬間でも全員が同じ動きにはならない。
+ */
+interface Reaction {
+  kind: typeof CLAP | typeof FIST | typeof BANZAI;
+  /** 手を叩く／腕を振る速さ（ラジアン毎秒）。 */
+  speed: number;
+  phase: number;
+  /** この盛り上がりを超えたら動き出す。小さい技では沸きやすい人だけが動く。 */
+  threshold: number;
+  /** 反応の遅れ（`LAGS` の番号）。 */
+  lag: number;
+  /** いま動いているか。動きが終わった1フレームだけ元の姿勢に戻すために持つ。 */
+  active: boolean;
+}
+
+/** 反応の遅れ（秒）。人ごとにこのどれかを割り当てて、沸きに時間差を作る。 */
+const LAGS = [0, 0.12, 0.26, 0.42];
 
 export function createCrowd(level: CrowdLevel): Crowd {
   const group = new THREE.Group();
   if (level === 'none') {
-    return { group, setEmptySeat: () => {}, dispose: () => {} };
+    return { group, setEmptySeat: () => {}, update: () => {}, dispose: () => {} };
   }
+  // ガラガラのときは沸かせない（数人しかいない客席で総立ちになると嘘くさい）。
+  const reacts = level !== 'sparse';
 
   const { ratio, standing } = OCCUPANCY[level];
   const random = seededRandom(0x6b1a17);
@@ -117,10 +168,10 @@ export function createCrowd(level: CrowdLevel): Crowd {
   }
 
   const batches: Batch[] = [
-    buildBatch(seated.filter((figure) => !figure.female), seatedParts(false), group),
-    buildBatch(seated.filter((figure) => figure.female), seatedParts(true), group),
-    buildBatch(standers.filter((figure) => !figure.female), standingParts(false), group),
-    buildBatch(standers.filter((figure) => figure.female), standingParts(true), group),
+    buildBatch(seated.filter((figure) => !figure.female), seatedParts(false), group, random),
+    buildBatch(seated.filter((figure) => figure.female), seatedParts(true), group, random),
+    buildBatch(standers.filter((figure) => !figure.female), standingParts(false), group, random),
+    buildBatch(standers.filter((figure) => figure.female), standingParts(true), group, random),
   ];
 
   // 席番号から「どの一群の何番目か」を引けるようにしておく（1席だけ消すため）。
@@ -139,9 +190,26 @@ export function createCrowd(level: CrowdLevel): Crowd {
     emptied = id;
   };
 
+  // 遅れのぶんだけずらした盛り上がりは、人ごとではなくバケツごとに1回だけ求める。
+  const heats = new Float32Array(LAGS.length);
+  const update = (elapsed: number) => {
+    if (!reacts) return;
+    let quiet = true;
+    for (let i = 0; i < LAGS.length; i++) {
+      heats[i] = crowdHeat(elapsed - LAGS[i]);
+      if (heats[i] > 0) quiet = false;
+    }
+    for (const batch of batches) {
+      // 沸いていない間も、直前まで動いていた人だけは静止姿勢に戻す必要がある。
+      if (quiet && !batch.reactions.some((reaction) => reaction.active)) continue;
+      reactBatch(batch, elapsed, heats, emptied);
+    }
+  };
+
   return {
     group,
     setEmptySeat,
+    update,
     dispose: () => {
       for (const batch of batches) {
         for (const mesh of batch.meshes) {
@@ -152,6 +220,114 @@ export function createCrowd(level: CrowdLevel): Crowd {
     },
   };
 }
+
+// 毎フレーム使い回す作業用。
+const work = {
+  euler: new THREE.Euler(),
+  quat: new THREE.Quaternion(),
+  yaw: new THREE.Quaternion(),
+  point: new THREE.Vector3(),
+  position: new THREE.Vector3(),
+  scale: new THREE.Vector3(),
+  body: new THREE.Matrix4(),
+  local: new THREE.Matrix4(),
+  world: new THREE.Matrix4(),
+};
+
+/**
+ * 一群ぶんの沸きを姿勢に流し込む。
+ *
+ * 腕以外の部品は体を浮かせるぶんしか動かないので、静止時の行列のY成分だけを
+ * 書き換える（1体あたり十数個の行列を組み直すと、満員のときに間に合わない）。
+ * 腕だけは肩を中心に回すので組み直す。
+ */
+function reactBatch(batch: Batch, time: number, heats: Float32Array, emptied: string | undefined) {
+  const { figures, reactions, meshes, arms, baseY } = batch;
+  const { euler, quat, yaw, point, position, scale, body, local, world } = work;
+  let touched = false;
+
+  for (let i = 0; i < figures.length; i++) {
+    const reaction = reactions[i];
+    const heat = heats[reaction.lag];
+    // 沸きが自分の腰の重さを超えたぶんだけ動く。
+    const amount = Math.min(Math.max((heat - reaction.threshold) / 0.3, 0), 1);
+    if (amount <= 0 && !reaction.active) continue;
+    reaction.active = amount > 0;
+
+    const figure = figures[i];
+    if (figure.seatId !== undefined && figure.seatId === emptied) continue;
+
+    const wave = Math.sin(time * reaction.speed + reaction.phase);
+    let lift = 0;
+    // 腕の目標角（垂らした状態からの振り上げ）と、内(-)／外(+)への開き。
+    let swingR = 0;
+    let swingL = 0;
+    let spread = 0;
+
+    switch (reaction.kind) {
+      case CLAP:
+        // 胸の前で手を合わせて叩く。
+        swingR = swingL = 1.5 + 0.13 * wave;
+        spread = -(0.46 + 0.1 * wave);
+        lift = 0.012 * (1 + wave);
+        break;
+      case FIST:
+        // 片手だけ突き上げて、かけ声に合わせて振る。
+        swingR = 2.5 + 0.32 * wave;
+        swingL = 0.9;
+        spread = -0.12;
+        lift = 0.022 * (1 + wave);
+        break;
+      default:
+        // バンザイ。腕を伸ばしたまま、体ごと浮かせる。
+        swingR = swingL = 2.85 + 0.14 * wave;
+        spread = 0.2;
+        lift = 0.03 + 0.045 * (1 + wave) * 0.5;
+        break;
+    }
+
+    const bob = lift * amount * figure.scale;
+    let bodyReady = false;
+
+    for (let part = 0; part < meshes.length; part++) {
+      const mesh = meshes[part];
+      const arm = arms[part];
+
+      if (!arm) {
+        mesh.instanceMatrix.array[i * 16 + 13] = baseY[part][i] + bob;
+        continue;
+      }
+
+      if (!bodyReady) {
+        position.set(figure.x, figure.y + bob, figure.z);
+        yaw.setFromEuler(euler.set(0, figure.yaw, 0));
+        scale.setScalar(figure.scale);
+        body.compose(position, yaw, scale);
+        bodyReady = true;
+      }
+
+      const swing = arm.side > 0 ? swingR : swingL;
+      euler.set(
+        arm.rest + (swing - arm.rest) * amount,
+        0,
+        arm.side * spread * amount,
+      );
+      quat.setFromEuler(euler);
+      // 肩を支点にして、腕を肩から手先の向きに置き直す。
+      point.set(0, -arm.half, 0).applyQuaternion(quat).add(arm.pivot);
+      local.compose(point, quat, ONE);
+      mesh.setMatrixAt(i, world.multiplyMatrices(body, local));
+    }
+
+    touched = true;
+  }
+
+  if (touched) {
+    for (const mesh of meshes) mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
+const ONE = new THREE.Vector3(1, 1, 1);
 
 /** その席の人を出す／消す（消すのは大きさを0にするだけ）。 */
 function applyFigure(entry: { batch: Batch; index: number } | undefined, visible: boolean): void {
@@ -181,20 +357,48 @@ function composeFigure(target: THREE.Matrix4, figure: Figure): THREE.Matrix4 {
 }
 
 /** 部品ごとに InstancedMesh を1つ作る。色は席ごとに instanceColor で散らす。 */
-function buildBatch(figures: Figure[], parts: FigurePart[], parent: THREE.Group): Batch {
-  const batch: Batch = { figures, locals: [], meshes: [] };
+function buildBatch(
+  figures: Figure[],
+  parts: FigurePart[],
+  parent: THREE.Group,
+  random: () => number,
+): Batch {
+  const batch: Batch = {
+    figures,
+    locals: [],
+    meshes: [],
+    arms: [],
+    baseY: [],
+    reactions: figures.map(() => makeReaction(random)),
+  };
   const local = new THREE.Matrix4();
   const body = new THREE.Matrix4();
   const world = new THREE.Matrix4();
   const color = new THREE.Color();
 
   for (const part of parts) {
+    const tilt = part.tiltX ?? 0;
     local.compose(
       new THREE.Vector3().fromArray(part.position),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(part.tiltX ?? 0, 0, 0)),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, 0, 0)),
       new THREE.Vector3(1, 1, 1),
     );
     batch.locals.push(local.clone());
+
+    // 腕は肩（部品の上端）を回転の中心にする。垂らしたままなら locals と同じ位置になる。
+    batch.arms.push(
+      part.arm && {
+        side: part.arm.side,
+        half: part.arm.half,
+        rest: tilt,
+        pivot: new THREE.Vector3(0, part.arm.half, 0)
+          .applyEuler(new THREE.Euler(tilt, 0, 0))
+          .add(new THREE.Vector3().fromArray(part.position)),
+      },
+    );
+
+    const baseY = new Float32Array(Math.max(figures.length, 1));
+    batch.baseY.push(baseY);
 
     // 素材の色は白にしておいて、instanceColor で1体ずつ着色する。
     const mesh = new THREE.InstancedMesh(
@@ -205,6 +409,7 @@ function buildBatch(figures: Figure[], parts: FigurePart[], parent: THREE.Group)
     figures.forEach((figure, index) => {
       mesh.setMatrixAt(index, world.multiplyMatrices(composeFigure(body, figure), local));
       mesh.setColorAt(index, color.setHex(figure.colors[part.tint]));
+      baseY[index] = world.elements[13];
     });
     mesh.count = figures.length;
     mesh.instanceMatrix.needsUpdate = true;
@@ -214,6 +419,26 @@ function buildBatch(figures: Figure[], parts: FigurePart[], parent: THREE.Group)
   }
 
   return batch;
+}
+
+/**
+ * 沸き方を1人ぶん決める。半分は拍手、残りが腕振りとバンザイ。
+ * 席を決めるのと同じ擬似乱数から引くので、同じ入りなら毎回同じ客席になる。
+ */
+function makeReaction(random: () => number): Reaction {
+  const roll = random();
+  const kind = roll < 0.5 ? CLAP : roll < 0.8 ? FIST : BANZAI;
+
+  return {
+    kind,
+    // 拍手は速く、バンザイはゆっくり。
+    speed: kind === CLAP ? 15 + random() * 7 : kind === FIST ? 7 + random() * 3 : 4 + random() * 2,
+    phase: random() * Math.PI * 2,
+    // 沸きやすさ。小さい技では一部だけ、決着では全員が動く。
+    threshold: 0.1 + random() * 0.55,
+    lag: Math.floor(random() * LAGS.length),
+    active: false,
+  };
 }
 
 function makeFigure(
@@ -297,12 +522,13 @@ function seatedParts(female: boolean): FigurePart[] {
       { geometry: box(0.14, 0.44, 0.15), tint: 'pants', position: [side * 0.11, 0.22, -0.3] },
       { geometry: box(0.14, 0.07, 0.25), tint: 'shoe', position: [side * 0.11, 0.035, -0.39] },
       { geometry: box(0.15, 0.15, 0.42), tint: 'pants', position: [side * 0.11, 0.5, -0.15] },
-      // 腕は膝の上に垂らす。
+      // 腕は膝の上に垂らす。沸いたときはここを肩から振り上げる。
       {
         geometry: capsule(0.05, 0.24),
         tint: 'shirt',
         position: [side * 0.2, 0.68, -0.06],
         tiltX: 0.55,
+        arm: { side, half: 0.17 },
       },
     );
   }
@@ -327,7 +553,12 @@ function standingParts(female: boolean): FigurePart[] {
     parts.push(
       { geometry: box(0.15, 0.88, 0.17), tint: 'pants', position: [side * 0.11, 0.44, 0] },
       { geometry: box(0.15, 0.07, 0.26), tint: 'shoe', position: [side * 0.11, 0.035, -0.04] },
-      { geometry: capsule(0.05, 0.3), tint: 'shirt', position: [side * 0.2, 1.12, 0.01] },
+      {
+        geometry: capsule(0.05, 0.3),
+        tint: 'shirt',
+        position: [side * 0.2, 1.12, 0.01],
+        arm: { side, half: 0.2 },
+      },
     );
   }
 

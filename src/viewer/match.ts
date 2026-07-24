@@ -1446,6 +1446,55 @@ function trackRef(): Key[] {
 }
 
 // ---------------------------------------------------------------------------
+// 客席が沸くきっかけ
+// ---------------------------------------------------------------------------
+
+/**
+ * 技が決まった瞬間と決着まわりの「沸き」。`crowd.ts` がこれを見て観客を動かす。
+ * t=その瞬間、hold=沸きが引くまでの秒数、power=大きさ(0..1)。
+ * 振り付けのキーを動かしたら、こちらの時刻も一緒に直すこと。
+ */
+const CHEER_CUES: { t: number; hold: number; power: number }[] = [
+  { t: 16.0, hold: 2.6, power: 0.55 }, // ロープ越しに場外へ落とした
+  { t: 22.6, hold: 4.2, power: 1.0 }, // トペコンヒーロ着弾
+  { t: 34.0, hold: 2.0, power: 0.5 }, // ボディスラム
+  { t: 36.3, hold: 2.2, power: 0.6 }, // 2カウントで返した
+  { t: 39.0, hold: 2.0, power: 0.6 }, // ラリアット
+  { t: 43.7, hold: 2.6, power: 0.7 }, // バックドロップ
+  { t: 47.1, hold: 1.6, power: 0.45 }, // 打ち合い
+  { t: 49.5, hold: 3.0, power: 0.9 }, // ジャーマンスープレックス
+  { t: 53.3, hold: 6.5, power: 1.0 }, // スリーカウント（決着）
+  { t: 56.7, hold: 3.3, power: 0.8 }, // 勝ち名乗り
+];
+
+/** 沸きが立ち上がるまでの秒数。 */
+const CHEER_RISE = 0.25;
+
+/**
+ * その時刻の盛り上がり(0..1)。きっかけで跳ね上がって、じわっと落ちる。
+ * 引数はループしていない経過秒でよい（内部で1周に畳む）。
+ */
+export function crowdHeat(seconds: number): number {
+  const t = ((seconds % DURATION) + DURATION) % DURATION;
+  let heat = 0;
+
+  for (const cue of CHEER_CUES) {
+    // ループの切れ目をまたぐ沸きも拾えるように、1周前のぶんも見る。
+    for (const start of [cue.t, cue.t - DURATION]) {
+      const dt = t - start;
+      if (dt < 0 || dt > cue.hold) continue;
+      const level =
+        dt < CHEER_RISE
+          ? dt / CHEER_RISE
+          : ((cue.hold - dt) / (cue.hold - CHEER_RISE)) ** 1.6;
+      heat = Math.max(heat, cue.power * level);
+    }
+  }
+
+  return heat;
+}
+
+// ---------------------------------------------------------------------------
 // 組み立て
 // ---------------------------------------------------------------------------
 

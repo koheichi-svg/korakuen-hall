@@ -128,6 +128,7 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
     // タブが裏に回ると delta が跳ねるので上限を切る。
     elapsed += Math.min(clock.getDelta(), 0.1);
     update(elapsed);
+    crowd?.update(elapsed);
     renderer.render(scene, camera);
   };
 
