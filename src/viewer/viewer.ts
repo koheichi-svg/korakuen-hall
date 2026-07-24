@@ -28,7 +28,7 @@ export interface SeatViewer {
  *   ドラッグ = 首を振る / ホイール = 画角(FOV)ズーム
  */
 export function createSeatViewer(container: HTMLElement): SeatViewer {
-  const scene = createHallScene();
+  const { scene, update } = createHallScene();
   const camera = new THREE.PerspectiveCamera(DEFAULT_FOV, 1, 0.05, 200);
   camera.rotation.order = 'YXZ';
 
@@ -118,9 +118,16 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
     zoomTo(camera.fov * Math.exp(event.deltaY * 0.0012));
   });
 
+  // 試合の時計。座席表に戻っている間は止めたいので、経過時間は自分で積む。
+  const clock = new THREE.Clock();
+  let elapsed = 0;
+
   let frame: number | undefined;
   const loop = () => {
     frame = requestAnimationFrame(loop);
+    // タブが裏に回ると delta が跳ねるので上限を切る。
+    elapsed += Math.min(clock.getDelta(), 0.1);
+    update(elapsed);
     renderer.render(scene, camera);
   };
 
@@ -168,7 +175,9 @@ export function createSeatViewer(container: HTMLElement): SeatViewer {
       applyOrientation();
     },
     start() {
-      if (frame === undefined) loop();
+      if (frame !== undefined) return;
+      clock.getDelta(); // 止めていた間ぶんを捨てる。
+      loop();
     },
     stop() {
       if (frame !== undefined) cancelAnimationFrame(frame);

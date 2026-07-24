@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 import { BALCONY, HALL, RING, RINGSIDE } from '../data/hall';
 import { BLOCKS, SEATS, rowsOfBlock, type Seat, type SeatRow, type Side } from '../data/seats';
+import { createMatch, createSeconds } from './match';
 
 /**
  * 後楽園ホールを手続き的に組み立てたシーン。
@@ -48,21 +49,30 @@ const COLOR = {
   lamp: 0xfff4d8,
 } as const;
 
-export function createHallScene(): THREE.Scene {
+export interface HallScene {
+  scene: THREE.Scene;
+  /** 試合を進める。描画のたびに経過秒（会場を出している間だけ進む）を渡す。 */
+  update(elapsed: number): void;
+}
+
+export function createHallScene(): HallScene {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x17150f);
+
+  const match = createMatch();
 
   scene.add(createShell());
   scene.add(createRing());
   scene.add(createRingsideFloor());
-  scene.add(createPeople());
+  scene.add(match.group);
+  scene.add(createSeconds());
   scene.add(createStands());
   scene.add(createStages());
   scene.add(createStageStairs());
   scene.add(createSeatFurniture());
   scene.add(...createLights());
 
-  return scene;
+  return { scene, update: match.update };
 }
 
 const standard = (color: number, roughness = 0.9) =>
@@ -899,188 +909,6 @@ function createRingsideFloor(): THREE.Group {
   group.add(infill);
 
   return group;
-}
-
-interface PersonSpec {
-  /** リング上の位置と向き（向きはラジアン、0で+Z＝南を向く）。 */
-  x: number;
-  z: number;
-  facing: number;
-  height: number;
-  hair: number;
-  /** 上半身。裸なら肌色、レフェリーはシャツの色。 */
-  torso: number;
-  /** 短パン・ロングタイツ・スラックスの色。 */
-  legs: number;
-  /** タイツのサイドに入る差し色。 */
-  accent?: number;
-  /** 半袖なら二の腕だけシャツ色になる。 */
-  sleeves?: boolean;
-  /** 手首のテーピング（白）。 */
-  wristTape?: boolean;
-  belt?: number;
-  /** 片腕のエルボーパッド。 */
-  elbowPad?: number;
-}
-
-const SKIN = 0xbd8657;
-
-/**
- * リング上の3人。
- * 2人のレスラーとレフェリーは、それぞれの写真の髪色・コスチュームの配色に寄せている
- * （顔立ちまでは作り込まない、色と装備でそれと分かる程度）。
- */
-function createPeople(): THREE.Group {
-  const group = new THREE.Group();
-
-  const people: PersonSpec[] = [
-    {
-      // 金髪・上半身裸・黒のロングタイツに赤のサイドライン・手首に白テープ。
-      x: -0.85,
-      z: 0.55,
-      facing: Math.atan2(1.7, -0.9),
-      height: 1.83,
-      hair: 0xe6d49b,
-      torso: SKIN,
-      legs: 0x15161b,
-      accent: 0xd32f2f,
-      wristTape: true,
-    },
-    {
-      // 黒髪・上半身裸・金と黒のロングタイツに赤の編み上げ・片腕に黒いエルボーパッド。
-      x: 0.85,
-      z: -0.35,
-      facing: Math.atan2(-1.7, 0.9),
-      height: 1.78,
-      hair: 0x2a2320,
-      torso: SKIN,
-      legs: 0x9a7a2c,
-      accent: 0xc62828,
-      elbowPad: 0x1a1a1a,
-    },
-    {
-      // レフェリー: 黒のポロシャツ（ノアのロゴ入り）、黒のスラックス、黒ベルト、両手首に白テープ。
-      x: 1.95,
-      z: 1.6,
-      facing: Math.atan2(-1.95, -1.6),
-      height: 1.74,
-      hair: 0x14120f,
-      torso: 0x1e1f23,
-      legs: 0x131417,
-      sleeves: true,
-      belt: 0x0c0c0e,
-      wristTape: true,
-    },
-  ];
-
-  for (const spec of people) group.add(createPerson(spec));
-  return group;
-}
-
-/** 人ひとり。足元を原点、ローカル +Z を正面として組み立てる。 */
-function createPerson(spec: PersonSpec): THREE.Group {
-  const person = new THREE.Group();
-  const h = spec.height;
-  const skin = standard(SKIN, 0.75);
-  const legMaterial = standard(spec.legs, 0.7);
-
-  const add = (mesh: THREE.Mesh, x: number, y: number, z = 0) => {
-    mesh.position.set(x, y, z);
-    person.add(mesh);
-    return mesh;
-  };
-
-  for (const side of [-1, 1]) {
-    const leg = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.083, 0.44 * h, 4, 8),
-      legMaterial,
-    );
-    add(leg, side * 0.1, 0.25 * h);
-
-    // タイツのサイドに入る差し色。
-    if (spec.accent !== undefined) {
-      const stripe = new THREE.Mesh(
-        new THREE.BoxGeometry(0.025, 0.28 * h, 0.1),
-        standard(spec.accent, 0.7),
-      );
-      add(stripe, side * 0.155, 0.3 * h);
-    }
-
-    const boot = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.1, 0.06 * h, 8),
-      standard(0x121215, 0.6),
-    );
-    add(boot, side * 0.1, 0.03 * h);
-  }
-
-  const hips = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.11 * h, 0.19), legMaterial);
-  add(hips, 0, 0.5 * h);
-
-  if (spec.belt !== undefined) {
-    const belt = new THREE.Mesh(
-      new THREE.BoxGeometry(0.34, 0.04, 0.21),
-      standard(spec.belt, 0.5),
-    );
-    add(belt, 0, 0.54 * h);
-  }
-
-  const torso = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.155, 0.2 * h, 4, 10),
-    standard(spec.torso, 0.75),
-  );
-  torso.scale.set(1.15, 1, 0.78);
-  add(torso, 0, 0.66 * h);
-
-  for (const side of [-1, 1]) {
-    if (spec.sleeves) {
-      // 半袖シャツ: 二の腕まではシャツ、そこから先は素肌。
-      const sleeve = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.07, 0.1 * h, 4, 8),
-        standard(spec.torso, 0.75),
-      );
-      add(sleeve, side * 0.24, 0.71 * h);
-      const forearm = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.16 * h, 4, 8), skin);
-      add(forearm, side * 0.25, 0.55 * h);
-    } else {
-      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.3 * h, 4, 8), skin);
-      add(arm, side * 0.245, 0.65 * h);
-    }
-
-    if (spec.wristTape) {
-      const tape = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.062, 0.062, 0.07, 8),
-        standard(0xf2f0ea, 0.8),
-      );
-      add(tape, side * 0.25, 0.47 * h);
-    }
-  }
-
-  if (spec.elbowPad !== undefined) {
-    const pad = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.075, 0.075, 0.11, 8),
-      standard(spec.elbowPad, 0.7),
-    );
-    add(pad, 0.245, 0.6 * h);
-  }
-
-  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.05 * h, 8), skin);
-  add(neck, 0, 0.79 * h);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.105, 14, 10), skin);
-  head.scale.set(0.92, 1.05, 0.95);
-  add(head, 0, 0.87 * h);
-
-  // 髪は頭のてっぺんから後頭部を覆うキャップ。前は開けて顔にする。
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.112, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
-    standard(spec.hair, 0.85),
-  );
-  hair.scale.set(0.95, 1.1, 1.0);
-  add(hair, 0, 0.872 * h, -0.012);
-
-  person.position.set(spec.x, RING.matY + 0.1, spec.z);
-  person.rotation.y = spec.facing;
-  return person;
 }
 
 /**
